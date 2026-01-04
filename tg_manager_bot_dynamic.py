@@ -605,34 +605,34 @@ if _tenants_initially_empty:
         persist_tenants()
 
 # Параметры имитации активности перед отправкой
-# Реалистичная скорость печати для зумеров: 50-80 WPM = 4-7 символов/сек
-TYPING_CHAR_SPEED = (4.0, 7.0)  # символов в секунду (реалистично для зумеров)
-TYPING_WORD_DELAY = (0.15, 0.25)  # сек. на слово (реалистично)
-TYPING_BASE_DELAY = (0.3, 0.7)  # небольшое постоянное смещение
-TYPING_NEWLINE_DELAY = (0.2, 0.5)  # штраф за перевод строки
-TYPING_DURATION_LIMITS = (0.5, 60.0)  # минимальная и максимальная продолжительность «печати»
-TYPING_DURATION_VARIANCE = (0.85, 1.15)  # небольшая вариативность
+# Реалистичная скорость печати для зумеров: 60-100 WPM = 5-9 символов/сек
+TYPING_CHAR_SPEED = (5.0, 9.0)  # символов в секунду (реалистично для зумеров)
+TYPING_WORD_DELAY = (0.1, 0.2)  # сек. на слово (реалистично)
+TYPING_BASE_DELAY = (0.5, 1.0)  # небольшое постоянное смещение
+TYPING_NEWLINE_DELAY = (0.15, 0.4)  # штраф за перевод строки
+TYPING_DURATION_LIMITS = (1.0, 45.0)  # минимальная и максимальная продолжительность «печати»
+TYPING_DURATION_VARIANCE = (0.8, 1.2)  # небольшая вариативность
 VOICE_RECORD_LIMITS = (2.0, 45.0)
 VOICE_RECORD_BYTES_PER_SECOND = (15000.0, 26000.0)
 VOICE_RECORD_FALLBACK = (5.0, 10.0)
 VOICE_RECORD_EXTRA_DELAY = (0.6, 1.4)
 VOICE_RECORD_VARIANCE = (0.9, 1.05)
-VIDEO_NOTE_RECORD_LIMITS = (3.0, 55.0)
+VIDEO_NOTE_RECORD_LIMITS = (1.0, 60.0)
 VIDEO_NOTE_BYTES_PER_SECOND = (60000.0, 110000.0)
 VIDEO_NOTE_FALLBACK = (9.0, 18.0)
 VIDEO_NOTE_EXTRA_DELAY = (1.4, 2.8)
 VIDEO_NOTE_VARIANCE = (0.92, 1.18)
-# Средняя скорость загрузки фото: 1-3 МБ/сек для хорошего интернета
-PHOTO_UPLOAD_LIMITS = (0.3, 10.0)
-PHOTO_UPLOAD_BYTES_PER_SECOND = (800000.0, 3000000.0)  # 0.8-3 МБ/сек
-PHOTO_UPLOAD_FALLBACK = (0.5, 2.0)
-PHOTO_UPLOAD_EXTRA_DELAY = (0.1, 0.4)
+# Средняя скорость загрузки фото: 0.5-2 МБ/сек для хорошего интернета
+PHOTO_UPLOAD_LIMITS = (2.0, 15.0)
+PHOTO_UPLOAD_BYTES_PER_SECOND = (300000.0, 1500000.0)  # 0.3-1.5 МБ/сек (реалистичнее)
+PHOTO_UPLOAD_FALLBACK = (2.5, 5.0)
+PHOTO_UPLOAD_EXTRA_DELAY = (0.5, 1.2)
 PHOTO_UPLOAD_VARIANCE = (0.9, 1.1)
-# Средняя скорость загрузки видео: 0.5-2 МБ/сек
-VIDEO_UPLOAD_LIMITS = (0.5, 30.0)
-VIDEO_UPLOAD_BYTES_PER_SECOND = (500000.0, 2000000.0)  # 0.5-2 МБ/сек
-VIDEO_UPLOAD_FALLBACK = (1.0, 4.0)
-VIDEO_UPLOAD_EXTRA_DELAY = (0.2, 0.6)
+# Средняя скорость загрузки видео: 0.2-1 МБ/сек
+VIDEO_UPLOAD_LIMITS = (3.0, 45.0)
+VIDEO_UPLOAD_BYTES_PER_SECOND = (200000.0, 1000000.0)  # 0.2-1 МБ/сек (реалистичнее)
+VIDEO_UPLOAD_FALLBACK = (3.0, 8.0)
+VIDEO_UPLOAD_EXTRA_DELAY = (0.8, 1.5)
 VIDEO_UPLOAD_VARIANCE = (0.9, 1.1)
 CHAT_ACTION_REFRESH = 4.5  # секунды между повторными действиями, если требуется
 # ============================================
@@ -3072,6 +3072,7 @@ class AccountWorker:
     ) -> None:
         if duration <= 0:
             return
+        log.info("[%s] simulating %s for %.2f seconds", self.phone, action, duration)
         try:
             async with client.action(peer, action):
                 await asyncio.sleep(duration)
@@ -3712,9 +3713,10 @@ class AccountWorker:
             if ext in {".jpg", ".jpeg", ".png"}:
                 media_type = "photo"
             elif ext in {".mp4", ".mov", ".webm"}:
-                media_type = "video"  # По умолчанию обычное видео, если нет метаданных
+                # По умолчанию считаем кружком для обратной совместимости (раньше все видео отправлялись как кружки)
+                media_type = "video_note"
             else:
-                media_type = "video_note"  # Для неизвестных расширений предполагаем кружок
+                media_type = "video_note"  # Для неизвестных расширений кружок
 
         try:
             if media_type == "photo":
