@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Media files - videos, photos, audio
+*.mp4
+*.mov
+*.avi
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.ogg
+*.mp3
+*.wav
+*.webm
+
+# Pastes and text files
+library/pastes/
+library/voices/
+library/video/
+library/stickers/
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+bot.log
+
+# Sessions
+sessions/
+*.session
+
+# Temporary files
+*.tmp
+*.bak
