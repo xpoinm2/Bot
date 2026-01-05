@@ -44,6 +44,8 @@ class MediaRecommender:
                 if file_path.is_file():
                     self._analyze_and_cache_file(file_path, media_type)
 
+        logger.info(f"Загружено метаданных для {len(self.file_metadata)} медиафайлов")
+
     def _analyze_and_cache_file(self, file_path: Path, media_type: str) -> None:
         """Анализирует файл и кэширует его метаданные"""
         try:
@@ -57,8 +59,12 @@ class MediaRecommender:
                 'type': media_type,
                 'size': file_path.stat().st_size,
                 'keywords': self._extract_keywords_from_filename(filename),
-                'themes': self._infer_themes_from_filename(filename)
+                'themes': [],
+                'content_types': []
             }
+
+            # Определяем темы и типы контента
+            self._infer_themes_from_filename(file_path.name)
 
             self.file_metadata[str(file_path)] = metadata
 
@@ -83,36 +89,88 @@ class MediaRecommender:
         return keywords
 
     def _infer_themes_from_filename(self, filename: str) -> List[str]:
-        """Определяет темы на основе имени файла"""
+        """Определяет темы и типы контента на основе имени файла"""
         themes = []
+        content_types = []
+
+        # Анализ типа контента (вопрос/ответ/утверждение)
+        question_words = ['как', 'что', 'где', 'когда', 'почему', 'зачем', 'кто', 'чей']
+        if any(word in filename.lower() for word in question_words) or filename.endswith('?'):
+            content_types.append('question')
+        else:
+            content_types.append('statement')
 
         # Приветствия и прощания
-        if any(word in filename for word in ['здравствуй', 'привет', 'добрый', 'доброе', 'доброго', 'спокойной']):
+        if any(word in filename for word in ['здравствуй', 'привет', 'добрый', 'доброе', 'доброго', 'спокойной', 'хай', 'hello', 'hi']):
             themes.append('greeting')
+            if any(word in filename for word in ['здравствуй', 'привет', 'добрый', 'доброе', 'хай', 'hello', 'hi']):
+                content_types.append('greeting_start')
+            else:
+                content_types.append('farewell')
 
         # Вопросы о самочувствии
-        if any(word in filename for word in ['как', 'самочувствие', 'настроение', 'дела']):
+        if any(word in filename for word in ['как', 'самочувствие', 'настроение', 'дела', 'жизнь', 'поживаешь']):
             themes.append('wellbeing')
+            if 'как' in filename and any(word in filename for word in ['дела', 'самочувствие', 'настроение', 'жизнь', 'поживаешь']):
+                content_types.append('wellbeing_question')
+
+        # Ответы на вопросы о самочувствии
+        if any(word in filename for word in ['хорошо', 'отлично', 'нормально', 'плохо', 'так себе', 'прекрасно', 'замечательно', 'в порядке', 'неплохо']):
+            themes.append('wellbeing')
+            content_types.append('wellbeing_response')
 
         # О себе
         if any(word in filename for word in ['о себе', 'расскажи', 'работаешь', 'кем']):
             themes.append('about_self')
+            if 'расскажи' in filename:
+                content_types.append('about_self_question')
+            else:
+                content_types.append('about_self_statement')
 
         # Еда и готовка
-        if any(word in filename for word in ['еда', 'готовк', 'кухн', 'рецепт', 'суп', 'борщ']):
+        if any(word in filename for word in ['еда', 'готовк', 'кухн', 'рецепт', 'суп', 'борщ', 'стол']):
             themes.append('food')
+            if any(word in filename for word in ['люблю', 'готов', 'ем', 'ела']):
+                content_types.append('food_hobby')
+            elif any(word in filename for word in ['рецепт', 'как готов']):
+                content_types.append('food_recipe')
 
         # Путешествия
-        if any(word in filename for word in ['путешеств', 'поездк', 'отпуск', 'турци', 'итали', 'франци']):
+        if any(word in filename for word in ['путешеств', 'поездк', 'отпуск', 'турци', 'итали', 'франци', 'дубай', 'питер']):
             themes.append('travel')
+            if any(word in filename for word in ['был', 'езди', 'летал', 'видел']):
+                content_types.append('travel_story')
 
         # Животные
-        if any(word in filename for word in ['кошк', 'собак', 'животн']):
+        if any(word in filename for word in ['кошк', 'собак', 'животн', 'кот', 'пес']):
             themes.append('pets')
+            if any(word in filename for word in ['моя', 'мой', 'наш']):
+                content_types.append('pets_ownership')
 
         # Работа/офис
-        if any(word in filename for word in ['работ', 'офис', 'документ', 'папк']):
+        if any(word in filename for word in ['работ', 'офис', 'документ', 'папк', 'компьютер']):
             themes.append('work')
+            if any(word in filename for word in ['работа', 'офис', 'компания']):
+                content_types.append('work_environment')
+
+        # Благодарности
+        if any(word in filename for word in ['спасибо', 'благодар', 'спс']):
+            themes.append('gratitude')
+            content_types.append('gratitude')
+
+        # Извинения
+        if any(word in filename for word in ['извин', 'прости', 'сорри']):
+            themes.append('apology')
+            content_types.append('apology')
+
+        # Эмоциональные состояния
+        if any(word in filename for word in ['грустн', 'рад', 'счастлив', 'обижен']):
+            themes.append('emotion')
+            content_types.append('emotion_expression')
+
+        # Сохраняем все найденные категории
+        self.file_metadata[str(Path(self.library_base_path) / filename)]['themes'] = themes
+        self.file_metadata[str(Path(self.library_base_path) / filename)]['content_types'] = content_types
 
         return themes
 
@@ -159,26 +217,104 @@ class MediaRecommender:
             max_recommendations
         )
 
+    def _analyze_message_context(self, message: str) -> Dict[str, Any]:
+        """Анализирует контекст входящего сообщения"""
+        message_lower = message.lower().strip()
+
+        context = {
+            'is_question': False,
+            'themes': [],
+            'content_type_needed': 'statement',  # По умолчанию ищем ответы/утверждения
+            'urgency': 'normal'
+        }
+
+        # Определяем, является ли сообщение вопросом
+        question_indicators = ['?', 'как', 'что', 'где', 'когда', 'почему', 'зачем', 'кто', 'чей', 'расскажи', 'ты']
+        context['is_question'] = (
+            any(indicator in message_lower for indicator in question_indicators) or
+            message_lower.endswith('?') or
+            message_lower.startswith(('ты ', 'вы '))
+        )
+
+        # Если это вопрос, нам нужны ответы/утверждения
+        if context['is_question']:
+            context['content_type_needed'] = 'statement'
+        else:
+            # Если это утверждение, можем предлагать вопросы или продолжение разговора
+            context['content_type_needed'] = 'question'
+
+        # Определяем темы сообщения
+        if any(word in message_lower for word in ['привет', 'здравствуй', 'добрый', 'доброе', 'хай', 'hello', 'hi']):
+            context['themes'].append('greeting')
+
+        if any(word in message_lower for word in ['как дела', 'как самочувствие', 'как настроение', 'что делаешь', 'как жизнь', 'как поживаешь']):
+            context['themes'].append('wellbeing')
+
+        if any(word in message_lower for word in ['о себе', 'расскажи о себе', 'кем работаешь', 'чем занимаешься', 'кто ты', 'откуда']):
+            context['themes'].append('about_self')
+
+        if any(word in message_lower for word in ['еда', 'готовить', 'кухня', 'рецепт', 'кушать', 'поесть', 'голоден']):
+            context['themes'].append('food')
+
+        if any(word in message_lower for word in ['спасибо', 'благодар', 'спс', 'thank', 'thanks']):
+            context['themes'].append('gratitude')
+
+        if any(word in message_lower for word in ['извин', 'прости', 'сорри', 'sorry', 'простите']):
+            context['themes'].append('apology')
+
+        if any(word in message_lower for word in ['любовь', 'нрав', 'симпат', 'красив', 'мил', 'хорош', 'замечательн']):
+            context['themes'].append('affection')
+
+        return context
+
     def _filter_candidates_by_keywords(self, message: str) -> List[str]:
-        """Фильтрует файлы по ключевым словам"""
+        """Фильтрует файлы по ключевым словам с учетом контекста"""
         candidates = []
+        context = self._analyze_message_context(message)
 
         for file_path, metadata in self.file_metadata.items():
-            # Проверяем ключевые слова
             keywords = metadata.get('keywords', [])
             themes = metadata.get('themes', [])
+            content_types = metadata.get('content_types', [])
 
-            # Ищем совпадения в ключевых словах
-            keyword_matches = any(keyword in message for keyword in keywords)
+            score = 0
 
-            # Ищем совпадения в темах
-            theme_matches = any(theme in message for theme in ['greeting', 'wellbeing', 'about_self', 'food', 'travel', 'pets', 'work']
-                              if theme in themes)
+            # Проверяем совпадения по ключевым словам
+            keyword_matches = sum(1 for keyword in keywords if keyword in message.lower())
+            if keyword_matches > 0:
+                score += keyword_matches * 2
 
-            if keyword_matches or theme_matches:
-                candidates.append(file_path)
+            # Проверяем совпадения по темам
+            theme_matches = sum(1 for theme in context['themes'] if theme in themes)
+            if theme_matches > 0:
+                score += theme_matches * 3
 
-        return candidates
+            # Проверяем соответствие типа контента
+            content_type_match = False
+            if context['content_type_needed'] == 'statement':
+                # Ищем ответы/утверждения, избегаем вопросов
+                if 'question' not in content_types and any(ct in content_types for ct in ['statement', 'wellbeing_response', 'about_self_statement']):
+                    content_type_match = True
+                    score += 2
+            elif context['content_type_needed'] == 'question':
+                # Ищем вопросы для продолжения разговора
+                if 'question' in content_types:
+                    content_type_match = True
+                    score += 1
+
+            # Бонус за точные совпадения типов контента
+            if context['is_question'] and 'wellbeing_response' in content_types:
+                score += 3  # Отличный ответ на вопрос о самочувствии
+            elif not context['is_question'] and 'gratitude' in content_types:
+                score += 3  # Спасибо на утверждение
+
+            # Только файлы с минимальным скором попадают в кандидаты
+            if score >= 2:
+                candidates.append((file_path, score))
+
+        # Сортируем по релевантности и возвращаем только пути
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return [file_path for file_path, score in candidates[:20]]  # Ограничиваем количество кандидатов
 
     async def _rank_with_ai(
         self,
@@ -188,46 +324,71 @@ class MediaRecommender:
         max_recommendations: int,
         api_key: str
     ) -> List[MediaRecommendation]:
-        """Ранжирует файлы с помощью AI"""
+        """Ранжирует файлы с помощью AI с учетом контекста"""
+        context = self._analyze_message_context(message)
 
         # Создаем промпт для AI
         file_descriptions = []
-        for i, file_path in enumerate(candidate_files[:10]):  # ограничиваем для экономии токенов
+        for i, file_path in enumerate(candidate_files[:12]):  # немного больше для выбора
             metadata = self.file_metadata.get(file_path, {})
             desc = f"{i+1}. {metadata.get('filename', 'Неизвестный файл')} - тип: {metadata.get('type', 'неизвестный')}"
-            if metadata.get('themes'):
-                desc += f", темы: {', '.join(metadata['themes'])}"
+
+            themes = metadata.get('themes', [])
+            content_types = metadata.get('content_types', [])
+
+            if themes:
+                desc += f", темы: {', '.join(themes)}"
+            if content_types:
+                desc += f", тип контента: {', '.join(content_types)}"
+
             file_descriptions.append(desc)
 
+        # Определяем что нужно для ответа
+        response_type_needed = "ответы/утверждения" if context['is_question'] else "вопросы или благодарности"
+
         prompt = f"""
-Анализируй входящее сообщение пользователя и выбери наиболее подходящие медиафайлы для ответа.
+Ты помогаешь выбрать подходящие медиафайлы для ответа в переписке девушки с парнем.
 
-Входящее сообщение: "{message}"
+КОНТЕКСТ СООБЩЕНИЯ:
+- Сообщение пользователя: "{message}"
+- Это {'ВОПРОС' if context['is_question'] else 'УТВЕРЖДЕНИЕ'}
+- Нам нужны: {response_type_needed}
 
-История переписки:
-{chr(10).join(history[-5:]) if history else "Нет истории"}
+ПРАВИЛА ВЫБОРА:
+1. На ВОПРОС пользователя предлагай ОТВЕТЫ, а не новые вопросы
+2. На УТВЕРЖДЕНИЕ можно предложить благодарность или вопрос для продолжения
+3. Избегай предлагать вопросы в ответ на вопросы
+4. Выбирай файлы, релевантные по темам и контенту
 
-Доступные файлы:
+История переписки (последние сообщения):
+{chr(10).join(history[-3:]) if history else "Нет истории"}
+
+ДОСТУПНЫЕ ФАЙЛЫ:
 {chr(10).join(file_descriptions)}
 
-Выбери до {max_recommendations} наиболее подходящих файлов. Для каждого укажи:
+ВЫБЕРИ до {max_recommendations} наиболее подходящих файлов. Для КАЖДОГО укажи:
 1. Номер файла
-2. Оценку релевантности (0.0-1.0)
-3. Причину выбора
+2. Оценку релевантности (0.0-1.0, где 1.0 - идеально подходит)
+3. КРАТКУЮ причину выбора (почему именно этот файл подходит для этого сообщения)
 
 Формат ответа:
 Файл X: оценка - причина
 Файл Y: оценка - причина
+
+Если ни один файл не подходит, укажи "Нет подходящих файлов"
 """
 
         try:
             ai_response = await gpt_answer(
                 prompt,
-                system_prompt="Ты эксперт по выбору подходящих медиафайлов для ответов в переписке.",
+                system_prompt="Ты эксперт по выбору медиафайлов для романтической переписки. Всегда учитывай контекст и избегай логических ошибок.",
                 api_key=api_key,
                 model="gpt-4o-mini",
-                temperature=0.3
+                temperature=0.2  # Более детерминированные ответы
             )
+
+            if "Нет подходящих файлов" in ai_response:
+                return []
 
             return self._parse_ai_ranking(ai_response, candidate_files, max_recommendations)
 
@@ -280,31 +441,60 @@ class MediaRecommender:
         candidate_files: List[str],
         max_recommendations: int
     ) -> List[MediaRecommendation]:
-        """Простое ранжирование по схожести"""
+        """Простое ранжирование по схожести с учетом контекста"""
         recommendations = []
+        context = self._analyze_message_context(message)
 
         for file_path in candidate_files:
             metadata = self.file_metadata.get(file_path, {})
             keywords = metadata.get('keywords', [])
             themes = metadata.get('themes', [])
+            content_types = metadata.get('content_types', [])
 
-            # Считаем совпадения
-            keyword_score = sum(1 for keyword in keywords if keyword in message)
-            theme_score = sum(1 for theme in themes if theme in message)
+            score = 0
+            reasons = []
 
-            # Нормализуем оценку
-            total_words = len(message.split())
-            if total_words > 0:
-                relevance = min((keyword_score + theme_score * 2) / total_words, 1.0)
+            # Оценка по ключевым словам
+            keyword_score = sum(1 for keyword in keywords if keyword in message.lower())
+            if keyword_score > 0:
+                score += keyword_score * 2
+                reasons.append(f"{keyword_score} ключевых слов")
+
+            # Оценка по темам
+            theme_score = sum(1 for theme in context['themes'] if theme in themes)
+            if theme_score > 0:
+                score += theme_score * 3
+                reasons.append(f"{theme_score} совпадений по темам")
+
+            # Оценка по типу контента
+            if context['is_question']:
+                # На вопрос ищем ответы
+                if 'question' not in content_types:
+                    score += 2
+                    reasons.append("ответ на вопрос")
+                if 'wellbeing_response' in content_types:
+                    score += 3
+                    reasons.append("прямой ответ на вопрос о самочувствии")
             else:
-                relevance = 0.0
+                # На утверждение можем предлагать вопросы или благодарности
+                if 'question' in content_types or 'gratitude' in content_types:
+                    score += 1
+                    reasons.append("продолжение разговора")
 
-            if relevance > 0.1:  # минимальный порог
+            # Специальные правила
+            if 'gratitude' in content_types and not context['is_question']:
+                score += 2
+                reasons.append("подходит для ответа на утверждение")
+
+            # Нормализуем оценку (0-1)
+            relevance = min(score / 10.0, 1.0)
+
+            if relevance > 0.15:  # повышенный порог
                 recommendations.append(MediaRecommendation(
                     file_path=file_path,
                     file_type=metadata.get('type', 'unknown'),
                     relevance_score=relevance,
-                    reason=f"Найдено совпадений: {keyword_score} ключевых слов, {theme_score} тем",
+                    reason=f"Совпадения: {', '.join(reasons)}",
                     metadata=metadata
                 ))
 

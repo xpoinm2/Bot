@@ -4027,18 +4027,18 @@ def _format_ai_variants_for_admin(task_id: str, pr: PendingAIReply):
     if pr.media_suggestions:
         lines.extend([
             "",
-            "🎵 Рекомендуемые медиафайлы:",
+            "[MEDIA] Рекомендуемые медиафайлы:",
         ])
 
         media_emoji = {
-            'voice': '🎤',
-            'video': '🎥',
-            'sticker': '🎭',
-            'paste': '📄'
+            'voice': '[VOICE]',
+            'video': '[VIDEO]',
+            'sticker': '[STICKER]',
+            'paste': '[TEXT]'
         }
 
         for i, media in enumerate(pr.media_suggestions, start=1):
-            emoji = media_emoji.get(media.get('file_type', ''), '📎')
+            emoji = media_emoji.get(media.get('file_type', ''), '[FILE]')
             filename = media.get('filename', 'Неизвестный файл')
             score = media.get('relevance_score', 0)
             reason = media.get('reason', '')
@@ -4079,14 +4079,14 @@ def _format_ai_variants_for_admin(task_id: str, pr: PendingAIReply):
     # Добавляем кнопки для медиафайлов
     if pr.media_suggestions:
         media_emoji = {
-            'voice': '🎤',
-            'video': '🎥',
-            'sticker': '🎭',
-            'paste': '📄'
+            'voice': '[VOICE]',
+            'video': '[VIDEO]',
+            'sticker': '[STICKER]',
+            'paste': '[TEXT]'
         }
 
         for idx, media in enumerate(pr.media_suggestions):
-            emoji = media_emoji.get(media.get('file_type', ''), '📎')
+            emoji = media_emoji.get(media.get('file_type', ''), '[FILE]')
             filename_short = media.get('filename', 'Файл')[:20]  # ограничиваем длину
             if len(filename_short) < len(media.get('filename', '')):
                 filename_short += "..."
