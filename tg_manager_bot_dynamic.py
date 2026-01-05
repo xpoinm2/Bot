@@ -1073,17 +1073,6 @@ class InlineArticle:
     buttons: Optional[List[List[Button]]] = None
 
 
-def library_inline_button(file_type: str, label: str) -> Button:
-    """Create an inline switch button for library previews."""
-
-    query = " ".join(("library", file_type)).strip()
-    # ``Button.switch_inline_current`` was removed in recent Telethon releases.
-    # ``Button.switch_inline`` with ``same_peer=True`` replicates the previous
-    # behaviour by opening the inline query in the current chat instead of
-    # redirecting the user to a different dialog.
-    return Button.switch_inline(label, query=query, same_peer=True)
-
-
 def _build_add_account_inline_results() -> List[InlineArticle]:
     return [
         InlineArticle(
@@ -2033,7 +2022,7 @@ def build_reply_options_keyboard(ctx: str, mode: str) -> List[List[Button]]:
             ]
         )
 
-    rows.extend(_library_inline_rows())
+    rows.extend(_library_inline_rows(ctx))
     if mode == "reply":
         rows.append([Button.inline("💬 Реакция", f"reply_reaction_menu:{ctx}:{mode}".encode())])
     rows.append([Button.inline("❌ Отмена", f"reply_cancel:{ctx}".encode())])
@@ -2469,17 +2458,17 @@ async def _build_history_html(client: TelegramClient, peer: Any, limit: int = MA
     return "<br>".join(entries)
 
 
-def _library_inline_rows() -> List[List[Button]]:
-    """Shortcut for commonly used inline query buttons."""
+def _library_inline_rows(ctx: str) -> List[List[Button]]:
+    """Inline buttons for selecting file types from library."""
 
     return [
         [
-            library_inline_button("paste", "📄 Пасты ↗"),
-            library_inline_button("voice", "🎙 Голосовые ↗"),
+            Button.inline("📄 Пасты", f"library_select:{ctx}:paste".encode()),
+            Button.inline("🎙 Голосовые", f"library_select:{ctx}:voice".encode()),
         ],
         [
-            library_inline_button("video", "📹 Медиа ↗"),
-            library_inline_button("sticker", "💟 Стикеры ↗"),
+            Button.inline("📹 Медиа", f"library_select:{ctx}:video".encode()),
+            Button.inline("💟 Стикеры", f"library_select:{ctx}:sticker".encode()),
         ],
     ]
 
@@ -4863,7 +4852,7 @@ def main_menu():
             )
         ],
         [Button.switch_inline("Список аккаунтов →", query="accounts_menu", same_peer=True)],
-        [library_inline_button("", "📁 Файлы ↗")],
+        [Button.inline("📁 Файлы", b"show_library_menu")],
     ]
 
 
@@ -6139,6 +6128,65 @@ async def on_cb(ev):
         )
         await answer_callback(ev)
         await ev.edit(caption, buttons=buttons)
+        return
+
+    if data.startswith("library_select:"):
+        try:
+            _, ctx, file_type = data.split(":", 2)
+        except ValueError:
+            await answer_callback(ev, "Некорректные данные", alert=True)
+            return
+
+        if file_type not in FILE_TYPE_LABELS:
+            await answer_callback(ev, "Неизвестный тип файлов", alert=True)
+            return
+
+        error = await _open_reply_asset_menu(admin_id, ctx, None, file_type)
+        if error:
+            await answer_callback(ev, error, alert=True)
+            return
+
+        await answer_callback(ev)
+        return
+
+    if data == "show_library_menu":
+        buttons = [
+            [
+                Button.inline("📄 Пасты", b"library_view:paste"),
+                Button.inline("🎙 Голосовые", b"library_view:voice"),
+            ],
+            [
+                Button.inline("📹 Медиа", b"library_view:video"),
+                Button.inline("💟 Стикеры", b"library_view:sticker"),
+            ],
+            [Button.inline("⬅️ Назад", b"back")],
+        ]
+        await answer_callback(ev)
+        await ev.edit("Выбери тип файлов для просмотра:", buttons=buttons)
+        return
+
+    if data.startswith("library_view:"):
+        file_type = data.split(":", 1)[1]
+        if file_type not in FILE_TYPE_LABELS:
+            await answer_callback(ev, "Неизвестный тип файлов", alert=True)
+            return
+
+        files = list_templates_by_type(admin_id, file_type)
+        if not files:
+            label = FILE_TYPE_LABELS[file_type]
+            await answer_callback(ev, f"{label} отсутствуют", alert=True)
+            return
+
+        # Показываем файлы для просмотра (без кнопок удаления)
+        rows: List[List[Button]] = []
+        for path in files[:10]:  # Показываем максимум 10 файлов без пагинации для простоты
+            display = os.path.basename(path)
+            rows.append([Button.inline(f"📄 {display}", b"noop")])  # noop - просто для просмотра
+
+        rows.append([Button.inline("⬅️ Назад", b"show_library_menu")])
+        caption = f"{FILE_TYPE_LABELS[file_type]} в библиотеке ({len(files)} файлов):"
+        await answer_callback(ev)
+        await ev.edit(caption, buttons=rows)
         return
 
     if data.startswith("file_del_do:"):
