@@ -3975,6 +3975,7 @@ class PendingAIReply:
     recommended_index: Optional[int] = None
     recommendation_text: Optional[str] = None
     reply_to_source: bool = True
+    media_suggestions: Optional[List[Dict[str, Any]]] = None
 
 
 pending_ai_replies: Dict[str, PendingAIReply] = {}
@@ -4022,6 +4023,33 @@ def _format_ai_variants_for_admin(task_id: str, pr: PendingAIReply):
             ]
         )
 
+    # Добавляем рекомендации медиафайлов
+    if pr.media_suggestions:
+        lines.extend([
+            "",
+            "🎵 Рекомендуемые медиафайлы:",
+        ])
+
+        media_emoji = {
+            'voice': '🎤',
+            'video': '🎥',
+            'sticker': '🎭',
+            'paste': '📄'
+        }
+
+        for i, media in enumerate(pr.media_suggestions, start=1):
+            emoji = media_emoji.get(media.get('file_type', ''), '📎')
+            filename = media.get('filename', 'Неизвестный файл')
+            score = media.get('relevance_score', 0)
+            reason = media.get('reason', '')
+
+            lines.extend([
+                f"{emoji} {i}) {filename}",
+                f"   Релевантность: {score:.1%}",
+                f"   Причина: {reason}",
+                ""
+            ])
+
     lines.append(
         "Выбери один из вариантов кнопками ниже.\n"
         "После выбора можно будет при необходимости отредактировать текст перед отправкой."
@@ -4047,6 +4075,25 @@ def _format_ai_variants_for_admin(task_id: str, pr: PendingAIReply):
         buttons.append(
             [Button.inline(f"{emoji} Вариант {idx+1}", f"ai_pick:{task_id}:{idx}")]
         )
+
+    # Добавляем кнопки для медиафайлов
+    if pr.media_suggestions:
+        media_emoji = {
+            'voice': '🎤',
+            'video': '🎥',
+            'sticker': '🎭',
+            'paste': '📄'
+        }
+
+        for idx, media in enumerate(pr.media_suggestions):
+            emoji = media_emoji.get(media.get('file_type', ''), '📎')
+            filename_short = media.get('filename', 'Файл')[:20]  # ограничиваем длину
+            if len(filename_short) < len(media.get('filename', '')):
+                filename_short += "..."
+
+            buttons.append([
+                Button.inline(f"{emoji} {filename_short}", f"ai_media:{task_id}:{idx}")
+            ])
 
     mode_label = (
         "🔁 Режим отправки: с реплаем"
@@ -4201,7 +4248,7 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> None:
     # Получаем API ключ из переменной окружения
     api_key = os.getenv("OPENAI_API_KEY")
     try:
-        variants = await generate_dating_ai_variants(
+        variants, media_suggestions = await generate_dating_ai_variants(
             user_text,
             history_lines=history_lines,
             history_texts=[*history_texts, user_text],
@@ -4210,6 +4257,8 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> None:
             model="gpt-4o",
             temperature=0.7,
             n=3,
+            include_media_suggestions=True,
+            user_id=worker.owner_id,
         )
     except Exception as e:
         log.warning("[%s] ошибка GPT-подсказки: %s", worker.phone, e)
@@ -4265,6 +4314,7 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> None:
         suggested_variants=cleaned,
         recommended_index=recommended_index,
         recommendation_text=recommendation_text,
+        media_suggestions=media_suggestions,
     )
     pending_ai_replies[task_id] = pr
 
@@ -5369,6 +5419,125 @@ async def on_cb(ev):
             await ev.edit(text_for_admin, buttons=buttons)
         except Exception as e:
             log.debug("Не удалось обновить AI-подсказку: %s", e)
+        return
+
+    if data.startswith("ai_media:"):
+        try:
+            _, rest = data.split(":", 1)
+            task_id, idx_str = rest.rsplit(":", 1)
+        except ValueError:
+            await answer_callback(ev, "Некорректные данные кнопки", alert=True)
+            return
+
+        pr = pending_ai_replies.get(task_id)
+        if not pr:
+            log.debug("AI media callback for unknown/expired task_id: %s", task_id)
+            await answer_callback(ev)
+            return
+
+        try:
+            idx = int(idx_str)
+        except ValueError:
+            await answer_callback(ev, "Некорректный номер медиафайла", alert=True)
+            return
+
+        if not pr.media_suggestions or idx < 0 or idx >= len(pr.media_suggestions):
+            await answer_callback(ev, "Медиафайл недоступен", alert=True)
+            return
+
+        # Получаем выбранный медиафайл
+        media = pr.media_suggestions[idx]
+        file_path = media.get('file_path')
+        file_type = media.get('file_type')
+
+        if not file_path or not os.path.exists(file_path):
+            await answer_callback(ev, "Файл не найден", alert=True)
+            return
+
+        # Отправляем медиафайл
+        worker = get_worker(pr.owner_id, pr.phone)
+        if not worker:
+            await answer_callback(ev, "Аккаунт недоступен", alert=True)
+            return
+
+        try:
+            # Определяем peer для отправки
+            peer = pr.peer_id if isinstance(pr.peer_id, int) else None
+            reply_to = pr.msg_id if pr.reply_to_source else None
+
+            if file_type == 'voice':
+                await worker.client.send_file(
+                    peer,
+                    file_path,
+                    voice_note=True,
+                    reply_to=reply_to
+                )
+            elif file_type == 'video':
+                await worker.client.send_file(
+                    peer,
+                    file_path,
+                    reply_to=reply_to
+                )
+            elif file_type == 'sticker':
+                await worker.client.send_file(
+                    peer,
+                    file_path,
+                    reply_to=reply_to
+                )
+            else:  # paste или другие файлы
+                # Для паст читаем содержимое и отправляем как текст
+                if file_type == 'paste':
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            paste_content = f.read().strip()
+                        if paste_content:
+                            await worker.client.send_message(
+                                peer,
+                                paste_content,
+                                reply_to=reply_to
+                            )
+                    except Exception as e:
+                        log.warning(f"Не удалось прочитать пасту {file_path}: {e}")
+                        await answer_callback(ev, "Ошибка чтения пасты", alert=True)
+                        return
+                else:
+                    await worker.client.send_file(
+                        peer,
+                        file_path,
+                        reply_to=reply_to
+                    )
+
+            # Регистрируем отправленное сообщение для контроля
+            register_outgoing_action(
+                admin_id,
+                phone=pr.phone,
+                chat_id=pr.peer_id,
+                msg_id=None,  # будет установлено позже
+                message_type="media" if file_type != 'paste' else "text"
+            )
+
+            # Удаляем задачу из ожидающих
+            pending_ai_replies.pop(task_id, None)
+
+            await answer_callback(ev, "Медиафайл отправлен!")
+
+            # Отправляем уведомление админу
+            try:
+                filename = media.get('filename', 'Неизвестный файл')
+                await safe_send_admin(
+                    f"✅ Медиафайл отправлен\n"
+                    f"Аккаунт: {pr.phone}\n"
+                    f"Файл: {filename}\n"
+                    f"Тип: {file_type}",
+                    owner_id=pr.owner_id
+                )
+            except Exception as notify_err:
+                log.debug("Не удалось отправить уведомление: %s", notify_err)
+
+        except Exception as send_err:
+            log.warning(f"Ошибка отправки медиафайла: {send_err}")
+            await answer_callback(ev, "Ошибка отправки", alert=True)
+
         return
 
     if data.startswith("ai_toggle_reply:"):

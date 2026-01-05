@@ -2,7 +2,7 @@ import os
 import logging  # Updated
 import re
 from datetime import datetime
-from typing import Optional, Literal, List, Sequence, Tuple
+from typing import Optional, Literal, List, Sequence, Tuple, Dict, Any
 
 from openai import AsyncOpenAI
 
@@ -266,7 +266,9 @@ async def generate_dating_ai_variants(
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
     n: int = 3,
-) -> List[str]:
+    include_media_suggestions: bool = False,
+    user_id: Optional[int] = None,
+) -> Tuple[List[str], Optional[List[Dict[str, Any]]]]:
     """Генерирует варианты ответов в стиле анкеты знакомств."""
 
     now = datetime.now()
@@ -378,7 +380,34 @@ async def generate_dating_ai_variants(
         if candidate:
             processed.append(candidate)
 
-    return processed
+    # Рекомендации медиафайлов
+    media_suggestions = None
+    if include_media_suggestions and user_id is not None:
+        try:
+            from media_recommender import get_media_recommender
+            recommender = get_media_recommender(user_id)
+            media_recs = await recommender.recommend_media(
+                text,
+                history_context=list(history_lines),
+                max_recommendations=3,
+                api_key=api_key
+            )
+
+            if media_recs:
+                media_suggestions = []
+                for rec in media_recs:
+                    media_suggestions.append({
+                        'file_path': rec.file_path,
+                        'file_type': rec.file_type,
+                        'relevance_score': rec.relevance_score,
+                        'reason': rec.reason,
+                        'filename': rec.metadata.get('filename', 'Неизвестный файл')
+                    })
+
+        except Exception as e:
+            logger.warning(f"Ошибка при получении рекомендаций медиа: {e}")
+
+    return processed, media_suggestions
 
 
 async def recommend_dating_ai_variant(
