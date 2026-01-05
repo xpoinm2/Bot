@@ -1073,6 +1073,17 @@ class InlineArticle:
     buttons: Optional[List[List[Button]]] = None
 
 
+def library_inline_button(file_type: str, label: str) -> Button:
+    """Create an inline switch button for library previews."""
+
+    query = " ".join(("library", file_type)).strip()
+    # ``Button.switch_inline_current`` was removed in recent Telethon releases.
+    # ``Button.switch_inline`` with ``same_peer=True`` replicates the previous
+    # behaviour by opening the inline query in the current chat instead of
+    # redirecting the user to a different dialog.
+    return Button.switch_inline(label, query=query, same_peer=True)
+
+
 def _build_add_account_inline_results() -> List[InlineArticle]:
     return [
         InlineArticle(
@@ -1101,7 +1112,7 @@ def _reply_inline_help_article(mode: str, reason: str) -> InlineArticle:
 
 
 def _build_reply_inline_results(
-    admin_id: int, ctx_id: str, mode: str
+    admin_id: int, ctx_id: str, mode: str, file_type: Optional[str] = None, search_query: Optional[str] = None
 ) -> List[InlineArticle]:
     ctx_info = get_reply_context_for_admin(ctx_id, admin_id)
     if not ctx_info:
@@ -1115,6 +1126,67 @@ def _build_reply_inline_results(
     base_payload = {"ctx": ctx_id, "mode": mode}
     articles: List[InlineArticle] = []
 
+    # Если указан тип файла, показываем файлы этого типа
+    if file_type and file_type in REPLY_TEMPLATE_META:
+        meta = REPLY_TEMPLATE_META[file_type]
+        loader = meta["loader"]
+        files = loader(ctx_info["owner_id"])
+
+        # Фильтруем по поисковому запросу
+        if search_query:
+            search_lower = search_query.lower()
+            filtered_files = [
+                path for path in files
+                if search_lower in os.path.basename(path).lower()
+            ]
+        else:
+            filtered_files = files
+
+        # Добавляем кнопку "Назад" для возврата к категориям
+        back_payload = {"ctx": ctx_id, "mode": mode, "variant": "back_to_categories"}
+        back_token = _register_payload(json.dumps(back_payload, ensure_ascii=False))
+        articles.append(
+            InlineArticle(
+                id=f"{INLINE_REPLY_RESULT_PREFIX}{back_token}",
+                title="⬅️ Назад к категориям",
+                description="Вернуться к выбору типа файлов",
+                text=f"{INLINE_REPLY_SENTINEL}{back_token}",
+            )
+        )
+
+        # Добавляем найденные файлы
+        for path in filtered_files[:50]:  # Ограничиваем до 50 результатов
+            filename = os.path.basename(path)
+            file_payload = {
+                **base_payload,
+                "variant": "file",
+                "file_type": file_type,
+                "file_path": path,
+            }
+            file_token = _register_payload(json.dumps(file_payload, ensure_ascii=False))
+            articles.append(
+                InlineArticle(
+                    id=f"{INLINE_REPLY_RESULT_PREFIX}{file_token}",
+                    title=f"{meta['emoji']} {filename}",
+                    description=f"Отправить {meta['label'].lower()}",
+                    text=f"{INLINE_REPLY_SENTINEL}{file_token}",
+                )
+            )
+
+        # Если ничего не найдено
+        if not filtered_files:
+            articles.append(
+                InlineArticle(
+                    id=f"no_files_{file_type}",
+                    title="❌ Ничего не найдено",
+                    description=f"Файлы типа '{meta['label']}' с текстом '{search_query or ''}' не найдены",
+                    text="Файлы не найдены. Попробуйте другой поисковый запрос.",
+                )
+            )
+
+        return articles
+
+    # Стандартное меню - показываем категории файлов
     token = _register_payload(json.dumps({**base_payload, "variant": "text"}, ensure_ascii=False))
     articles.append(
         InlineArticle(
@@ -1125,14 +1197,14 @@ def _build_reply_inline_results(
         )
     )
 
-    for file_type, meta in REPLY_TEMPLATE_META.items():
+    for ft, meta in REPLY_TEMPLATE_META.items():
         emoji = meta.get("emoji", "")
-        label = meta.get("label", file_type)
+        label = meta.get("label", ft)
         inline_label = f"{emoji} {label}".strip()
         picker_payload = {
             **base_payload,
             "variant": "picker",
-            "file_type": file_type,
+            "file_type": ft,
         }
         picker_token = _register_payload(json.dumps(picker_payload, ensure_ascii=False))
         articles.append(
@@ -1186,13 +1258,36 @@ async def _execute_inline_reply_payload(admin_id: int, payload: Dict[str, Any]) 
     if error:
         await send_temporary_message(admin_id, f"❌ {error}")
         return
-    if payload.get("variant") == "picker":
+    variant = payload.get("variant")
+    if variant == "picker":
         file_type = payload.get("file_type")
         if not file_type:
             return
         picker_error = await _open_reply_asset_menu(admin_id, ctx, mode_value, file_type)
         if picker_error:
             await send_temporary_message(admin_id, f"❌ {picker_error}")
+    elif variant == "back_to_categories":
+        # Ничего не делаем - просто активируем сессию для показа меню категорий
+        pass
+    elif variant == "file":
+        file_path = payload.get("file_path")
+        file_type = payload.get("file_type")
+        if not file_path or not file_type:
+            await send_temporary_message(admin_id, "❌ Ошибка: файл не найден.")
+            return
+
+        # Отправляем файл собеседнику
+        ctx_info = get_reply_context_for_admin(ctx, admin_id)
+        if not ctx_info:
+            await send_temporary_message(admin_id, "❌ Контекст устарел.")
+            return
+
+        try:
+            await _send_file_to_chat(ctx_info, file_path, file_type)
+            await send_temporary_message(admin_id, f"✅ {REPLY_TEMPLATE_META[file_type]['label']} отправлен!")
+        except Exception as exc:
+            log.error("Failed to send file %r: %s", file_path, exc)
+            await send_temporary_message(admin_id, f"❌ Ошибка отправки файла: {exc}")
 
 
 async def _process_inline_reply_token(admin_id: int, token: str) -> bool:
@@ -1205,16 +1300,75 @@ async def _process_inline_reply_token(admin_id: int, token: str) -> bool:
     return True
 
 
-def _parse_reply_inline_query(query: str) -> Optional[Tuple[str, str]]:
-    parts = query.split(None, 1)
+async def _send_file_to_chat(ctx_info: Dict[str, Any], file_path: str, file_type: str) -> None:
+    """Send a file to the chat based on context info."""
+    from .worker import get_worker_for_account
+
+    account_id = ctx_info["phone"]
+    worker = get_worker_for_account(account_id)
+    if not worker:
+        raise Exception(f"Аккаунт {account_id} недоступен")
+
+    peer = ctx_info["chat_id"]
+    reply_to = ctx_info.get("reply_to_msg_id")
+
+    if file_type == 'voice':
+        await worker.client.send_file(
+            peer,
+            file_path,
+            voice_note=True,
+            reply_to=reply_to
+        )
+    elif file_type == 'video':
+        await worker.client.send_file(
+            peer,
+            file_path,
+            reply_to=reply_to
+        )
+    elif file_type == 'sticker':
+        await worker.client.send_file(
+            peer,
+            file_path,
+            reply_to=reply_to
+        )
+    elif file_type == 'paste':
+        # Для паст читаем содержимое и отправляем как текст
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                paste_content = f.read().strip()
+            if paste_content:
+                await worker.client.send_message(
+                    peer,
+                    paste_content,
+                    reply_to=reply_to
+                )
+        except Exception as e:
+            raise Exception(f"Не удалось прочитать пасту: {e}")
+    else:
+        await worker.client.send_file(
+            peer,
+            file_path,
+            reply_to=reply_to
+        )
+
+
+def _parse_reply_inline_query(query: str) -> Optional[Tuple[str, str, Optional[str], Optional[str]]]:
+    parts = query.split()
     if not parts:
         return None
     token = parts[0].lower()
     if token not in {"reply", "reply_to"}:
         return None
-    ctx = parts[1] if len(parts) > 1 else ""
+
+    if len(parts) < 2:
+        return None
+
+    ctx = parts[1]
     mode = "reply" if token == "reply_to" else "normal"
-    return ctx, mode
+    file_type = parts[2] if len(parts) > 2 else None
+    search_query = " ".join(parts[3:]) if len(parts) > 3 else None
+
+    return ctx, mode, file_type, search_query
 
 
 def _prepare_reply_asset_menu(owner_id: int, file_type: str) -> Optional[Tuple[List[str], str, str, str]]:
@@ -2463,12 +2617,12 @@ def _library_inline_rows(ctx: str) -> List[List[Button]]:
 
     return [
         [
-            Button.inline("📄 Пасты", f"library_select:{ctx}:paste".encode()),
-            Button.inline("🎙 Голосовые", f"library_select:{ctx}:voice".encode()),
+            Button.switch_inline("📄 Пасты", query=f"reply {ctx} paste", same_peer=True),
+            Button.switch_inline("🎙 Голосовые", query=f"reply {ctx} voice", same_peer=True),
         ],
         [
-            Button.inline("📹 Медиа", f"library_select:{ctx}:video".encode()),
-            Button.inline("💟 Стикеры", f"library_select:{ctx}:sticker".encode()),
+            Button.switch_inline("📹 Медиа", query=f"reply {ctx} video", same_peer=True),
+            Button.switch_inline("💟 Стикеры", query=f"reply {ctx} sticker", same_peer=True),
         ],
     ]
 
@@ -4852,7 +5006,7 @@ def main_menu():
             )
         ],
         [Button.switch_inline("Список аккаунтов →", query="accounts_menu", same_peer=True)],
-        [Button.inline("📁 Файлы", b"show_library_menu")],
+        [library_inline_button("", "📁 Файлы ↗")],
     ]
 
 
@@ -5068,11 +5222,11 @@ async def on_inline_query(ev):
     
     reply_query = _parse_reply_inline_query(raw_query)
     if reply_query is not None:
-        ctx_id, mode = reply_query
+        ctx_id, mode, file_type, search_query = reply_query
         if not ctx_id:
             results = [_reply_inline_help_article(mode, "Нажми кнопку в уведомлении ещё раз.")]
         else:
-            results = _build_reply_inline_results(user_id, ctx_id, mode)
+            results = _build_reply_inline_results(user_id, ctx_id, mode, file_type, search_query)
         rendered = await _render_inline_articles(ev.builder, results)
         await ev.answer(rendered, cache_time=0)
         return
@@ -6128,65 +6282,6 @@ async def on_cb(ev):
         )
         await answer_callback(ev)
         await ev.edit(caption, buttons=buttons)
-        return
-
-    if data.startswith("library_select:"):
-        try:
-            _, ctx, file_type = data.split(":", 2)
-        except ValueError:
-            await answer_callback(ev, "Некорректные данные", alert=True)
-            return
-
-        if file_type not in FILE_TYPE_LABELS:
-            await answer_callback(ev, "Неизвестный тип файлов", alert=True)
-            return
-
-        error = await _open_reply_asset_menu(admin_id, ctx, None, file_type)
-        if error:
-            await answer_callback(ev, error, alert=True)
-            return
-
-        await answer_callback(ev)
-        return
-
-    if data == "show_library_menu":
-        buttons = [
-            [
-                Button.inline("📄 Пасты", b"library_view:paste"),
-                Button.inline("🎙 Голосовые", b"library_view:voice"),
-            ],
-            [
-                Button.inline("📹 Медиа", b"library_view:video"),
-                Button.inline("💟 Стикеры", b"library_view:sticker"),
-            ],
-            [Button.inline("⬅️ Назад", b"back")],
-        ]
-        await answer_callback(ev)
-        await ev.edit("Выбери тип файлов для просмотра:", buttons=buttons)
-        return
-
-    if data.startswith("library_view:"):
-        file_type = data.split(":", 1)[1]
-        if file_type not in FILE_TYPE_LABELS:
-            await answer_callback(ev, "Неизвестный тип файлов", alert=True)
-            return
-
-        files = list_templates_by_type(admin_id, file_type)
-        if not files:
-            label = FILE_TYPE_LABELS[file_type]
-            await answer_callback(ev, f"{label} отсутствуют", alert=True)
-            return
-
-        # Показываем файлы для просмотра (без кнопок удаления)
-        rows: List[List[Button]] = []
-        for path in files[:10]:  # Показываем максимум 10 файлов без пагинации для простоты
-            display = os.path.basename(path)
-            rows.append([Button.inline(f"📄 {display}", b"noop")])  # noop - просто для просмотра
-
-        rows.append([Button.inline("⬅️ Назад", b"show_library_menu")])
-        caption = f"{FILE_TYPE_LABELS[file_type]} в библиотеке ({len(files)} файлов):"
-        await answer_callback(ev)
-        await ev.edit(caption, buttons=rows)
         return
 
     if data.startswith("file_del_do:"):
