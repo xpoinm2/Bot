@@ -49,3 +49,6 @@ sessions/
 # Temporary files
 *.tmp
 *.bak
+
+# Environment variables
+.env
