@@ -17,7 +17,7 @@ class SimpleDescriptionFiller:
 
     def run_interactive_filler(self) -> None:
         """Интерактивное заполнение описаний"""
-        print("🎵 ЗАПОЛНЕНИЕ ОПИСАНИЙ ГОЛОСОВЫХ ФАЙЛОВ")
+        print("VOICE DESCRIPTION FILLER")
         print("=" * 50)
         print("Выберите действие:")
         print("1. Заполнить новые описания")
@@ -48,11 +48,11 @@ class SimpleDescriptionFiller:
     def _fill_voices_interactive(self, fill_existing: bool = False) -> None:
         """Интерактивное заполнение описаний голосовых файлов"""
         if fill_existing:
-            print("\n🎤 ПЕРЕЗАПОЛНЕНИЕ СУЩЕСТВУЮЩИХ ОПИСАНИЙ")
+            print("\nVOICE: ПЕРЕЗАПОЛНЕНИЕ СУЩЕСТВУЮЩИХ ОПИСАНИЙ")
             target_files = self._get_files_with_filled_descriptions("voices", "*.ogg")
             action_desc = "перезаполнить"
         else:
-            print("\n🎤 ЗАПОЛНЕНИЕ НОВЫХ ОПИСАНИЙ")
+            print("\nVOICE: ЗАПОЛНЕНИЕ НОВЫХ ОПИСАНИЙ")
             target_files = self._get_files_without_descriptions("voices", "*.ogg")
             action_desc = "заполнить"
 
@@ -67,9 +67,9 @@ class SimpleDescriptionFiller:
 
         if not target_files:
             if fill_existing:
-                print("❌ Нет заполненных описаний для перезаполнения!")
+                print("ERROR: Нет заполненных описаний для перезаполнения!")
             else:
-                print("✅ Все описания уже заполнены!")
+                print("DONE: Все описания уже заполнены!")
             return
 
         print(f"\nВыбрано {len(target_files)} файлов для {action_desc}ия")
@@ -81,8 +81,8 @@ class SimpleDescriptionFiller:
 
         processed_count = 0
 
-        for i, voice_file in enumerate(voices_without_desc, 1):
-            print(f"\n[{i}/{len(voices_without_desc)}] 🎤 {voice_file.name}")
+        for i, voice_file in enumerate(target_files, 1):
+            print(f"\n[{i}/{len(target_files)}] VOICE: {voice_file.name}")
 
             # Показать текущее описание если есть
             desc_file = voice_file.parent / f"{voice_file.stem}.txt"
@@ -102,7 +102,7 @@ class SimpleDescriptionFiller:
             # Запросить данные
             text = input("ТОЧНЫЙ текст (что говорится): ").strip()
             if not text:
-                print("⏭️ Пропущено")
+                print("SKIP: Пропущено")
                 continue
 
             emotion = self._choose_emotion()
@@ -123,11 +123,11 @@ class SimpleDescriptionFiller:
             try:
                 desc_file.write_text(description, encoding='utf-8')
                 processed_count += 1
-                print("✅ Описание сохранено")
+                print("OK: Описание сохранено")
             except Exception as e:
-                print(f"❌ Ошибка сохранения: {e}")
+                print(f"ERROR: Ошибка сохранения: {e}")
 
-        print(f"\n✅ Заполнено описаний: {processed_count}")
+        print(f"\nDONE: Заполнено описаний: {processed_count}")
 
 
     def _choose_emotion(self) -> str:
@@ -256,7 +256,7 @@ class SimpleDescriptionFiller:
 
     def _show_stats(self) -> None:
         """Показывает статистику"""
-        print("\n📊 СТАТИСТИКА ГОТОВНОСТИ:")
+        print("\nSTATS: СТАТИСТИКА ГОТОВНОСТИ:")
 
         # Голосовые
         voices_path = self.library_path / "voices"
@@ -275,7 +275,7 @@ class SimpleDescriptionFiller:
             print(f"    Заполненные: {filled_count}")
             print(f"    Нуждаются в заполнении: {unfilled_count}")
 
-        print("💡 Пасты: исключены из рекомендаций")
+        print("INFO: Пасты: исключены из рекомендаций")
 
 def main():
     """Основная функция"""
