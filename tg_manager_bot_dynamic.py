@@ -1,6 +1,7 @@
 from __future__ import annotations  # Updated
 
 import asyncio
+import os
 
 # Загружаем переменные окружения из .env файла
 try:
@@ -12,32 +13,14 @@ try:
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         print(f"OK: OPENAI_API_KEY найден (длина: {len(api_key)} символов)")
-        # Не показываем ключ полностью по соображениям безопасности
-        if len(api_key) < 20:
-            print("WARNING: Ключ выглядит слишком коротким!")
     else:
         print("ERROR: OPENAI_API_KEY не найден в переменных окружения")
 
 except ImportError:
     print("WARNING: python-dotenv не установлен, переменные окружения не загружены")
-    # Альтернативная загрузка .env файла вручную
-    try:
-        env_file = os.path.join(os.path.dirname(__file__), '.env')
-        if os.path.exists(env_file):
-            with open(env_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        os.environ[key.strip()] = value.strip()
-            print("OK: Переменные загружены вручную из .env файла")
-        else:
-            print("WARNING: Файл .env не найден")
-    except Exception as e:
-        print(f"ERROR: Не удалось загрузить .env файл вручную: {e}")
+
 import base64
 import contextlib
-import os
 import json
 import logging
 import sys

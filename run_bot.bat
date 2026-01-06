@@ -29,6 +29,12 @@ exit /b 1
 echo.
 echo Используется Python: %PYTHON_CMD%
 
+REM --- Установка API ключа ---
+REM 🔴 ВАЖНО: Замените этот ключ на ваш реальный перед запуском!
+set "OPENAI_API_KEY=your-openai-api-key-here""
+echo.
+echo OK: OpenAI API ключ установлен
+
 "%PYTHON_CMD%" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" || (
     echo.
     echo [ERROR] Требуется Python версии 3.10 или новее.
