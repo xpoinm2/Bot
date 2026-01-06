@@ -19,20 +19,23 @@ class SimpleDescriptionFiller:
         """Интерактивное заполнение описаний"""
         print("🎵 ЗАПОЛНЕНИЕ ОПИСАНИЙ ГОЛОСОВЫХ ФАЙЛОВ")
         print("=" * 50)
-        print("Выберите что заполнять:")
-        print("1. Голосовые файлы")
-        print("2. Показать статистику")
-        print("3. Выход")
+        print("Выберите действие:")
+        print("1. Заполнить новые описания")
+        print("2. Перезаполнить существующие")
+        print("3. Показать статистику")
+        print("4. Выход")
 
         while True:
             try:
-                choice = input("\nВыберите опцию (1-5): ").strip()
+                choice = input("\nВыберите опцию (1-4): ").strip()
 
                 if choice == '1':
-                    self._fill_voices_interactive()
+                    self._fill_voices_interactive(fill_existing=False)
                 elif choice == '2':
-                    self._show_stats()
+                    self._fill_voices_interactive(fill_existing=True)
                 elif choice == '3':
+                    self._show_stats()
+                elif choice == '4':
                     break
                 else:
                     print("Неверный выбор!")
@@ -42,21 +45,38 @@ class SimpleDescriptionFiller:
             except Exception as e:
                 print(f"Ошибка: {e}")
 
-    def _fill_voices_interactive(self) -> None:
+    def _fill_voices_interactive(self, fill_existing: bool = False) -> None:
         """Интерактивное заполнение описаний голосовых файлов"""
-        print("\n🎤 ЗАПОЛНЕНИЕ ГОЛОСОВЫХ ФАЙЛОВ")
+        if fill_existing:
+            print("\n🎤 ПЕРЕЗАПОЛНЕНИЕ СУЩЕСТВУЮЩИХ ОПИСАНИЙ")
+            target_files = self._get_files_with_filled_descriptions("voices", "*.ogg")
+            action_desc = "перезаполнить"
+        else:
+            print("\n🎤 ЗАПОЛНЕНИЕ НОВЫХ ОПИСАНИЙ")
+            target_files = self._get_files_without_descriptions("voices", "*.ogg")
+            action_desc = "заполнить"
 
-        voices_without_desc = self._get_files_without_descriptions("voices", "*.ogg")
+        voices_filled = self._get_files_with_filled_descriptions("voices", "*.ogg")
+        voices_unfilled = self._get_files_without_descriptions("voices", "*.ogg")
 
-        if not voices_without_desc:
-            print("✅ Все голосовые файлы уже имеют описания!")
+        total_voices = len(voices_filled) + len(voices_unfilled)
+
+        print(f"Всего голосовых файлов: {total_voices}")
+        print(f"Заполненных описаний: {len(voices_filled)}")
+        print(f"Нужно {action_desc}: {len(target_files)}")
+
+        if not target_files:
+            if fill_existing:
+                print("❌ Нет заполненных описаний для перезаполнения!")
+            else:
+                print("✅ Все описания уже заполнены!")
             return
 
-        print(f"Найдено {len(voices_without_desc)} файлов без описаний")
+        print(f"\nВыбрано {len(target_files)} файлов для {action_desc}ия")
         print("\nДля каждого файла:")
         print("1. Прослушайте файл")
         print("2. Введите точный текст что говорится")
-        print("3. Укажите эмоцию и контекст")
+        print("3. Выберите эмоцию/тему/тип")
         print("\nНажмите Enter для пропуска файла")
 
         processed_count = 0
@@ -191,7 +211,7 @@ class SimpleDescriptionFiller:
                 return types[choice]
 
     def _get_files_without_descriptions(self, folder_name: str, pattern: str) -> List[Path]:
-        """Получает файлы без описаний"""
+        """Получает файлы с незаполненными описаниями"""
         folder_path = self.library_path / folder_name
         if not folder_path.exists():
             return []
@@ -202,8 +222,37 @@ class SimpleDescriptionFiller:
             desc_file = file_path.parent / f"{file_path.stem}.txt"
             if not desc_file.exists():
                 files_without_desc.append(file_path)
+            else:
+                # Проверить, заполнено ли описание
+                try:
+                    content = desc_file.read_text(encoding='utf-8')
+                    # Если есть маркеры незавершенного заполнения, считаем незаполненным
+                    if ("РУЧНОЕ ЗАПОЛНЕНИЕ" in content or
+                        "ТОЧНЫЙ ТЕКСТ:" in content or
+                        "ЭМОЦИЯ: [" in content or
+                        content.strip() == ""):
+                        files_without_desc.append(file_path)
+                except:
+                    # Если не удалось прочитать, считаем незаполненным
+                    files_without_desc.append(file_path)
 
         return files_without_desc
+
+    def _get_files_with_filled_descriptions(self, folder_name: str, pattern: str) -> List[Path]:
+        """Получает файлы с заполненными описаниями"""
+        all_files = []
+        for file_path in (self.library_path / folder_name).glob(pattern):
+            all_files.append(file_path)
+
+        files_without_desc = self._get_files_without_descriptions(folder_name, pattern)
+
+        # Возвращаем файлы, которые есть во всех, но не в незаполненных
+        filled_files = []
+        for file_path in all_files:
+            if file_path not in files_without_desc:
+                filled_files.append(file_path)
+
+        return filled_files
 
     def _show_stats(self) -> None:
         """Показывает статистику"""
@@ -213,20 +262,18 @@ class SimpleDescriptionFiller:
         voices_path = self.library_path / "voices"
         if voices_path.exists():
             voice_files = list(voices_path.glob("*.ogg"))
-            voice_descs = 0
-            for vf in voice_files:
-                desc_file = vf.parent / f"{vf.stem}.txt"
-                if desc_file.exists():
-                    try:
-                        content = desc_file.read_text(encoding='utf-8')
-                        # Проверяем что описание заполнено (не содержит шаблон)
-                        if "ТОЧНЫЙ ТЕКСТ:" not in content and "РУЧНОЕ ЗАПОЛНЕНИЕ" not in content:
-                            voice_descs += 1
-                    except:
-                        pass
+            voices_filled = self._get_files_with_filled_descriptions("voices", "*.ogg")
+            voices_unfilled = self._get_files_without_descriptions("voices", "*.ogg")
 
-            voice_percent = (voice_descs / len(voice_files) * 100) if voice_files else 0
-            print(".1f")
+            filled_count = len(voices_filled)
+            unfilled_count = len(voices_unfilled)
+            total_count = len(voice_files)
+
+            filled_percent = (filled_count / total_count * 100) if total_count else 0
+
+            print("15")
+            print(f"    Заполненные: {filled_count}")
+            print(f"    Нуждаются в заполнении: {unfilled_count}")
 
         print("💡 Пасты: исключены из рекомендаций")
 
@@ -238,7 +285,9 @@ def main():
     parser.add_argument('--stats', action='store_true',
                        help='Показать статистику готовности')
     parser.add_argument('--voices', action='store_true',
-                       help='Заполнить только голосовые')
+                       help='Заполнить новые описания голосовых')
+    parser.add_argument('--refill-voices', action='store_true',
+                       help='Перезаполнить существующие описания голосовых')
     parser.add_argument('--interactive', action='store_true',
                        help='Интерактивный режим')
 
@@ -249,7 +298,9 @@ def main():
     if args.stats:
         filler._show_stats()
     elif args.voices:
-        filler._fill_voices_interactive()
+        filler._fill_voices_interactive(fill_existing=False)
+    elif args.refill_voices:
+        filler._fill_voices_interactive(fill_existing=True)
     elif args.interactive:
         filler.run_interactive_filler()
     else:

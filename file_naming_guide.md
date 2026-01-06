@@ -208,3 +208,4 @@ python create_file_descriptions.py
 2. Убедитесь, что есть файлы описаний
 3. Запустите `python test_context_analysis.py`
 4. Проверьте логи на ошибки анализа
+

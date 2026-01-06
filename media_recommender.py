@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class MediaRecommendation:
     """Рекомендация медиафайла для ответа"""
     file_path: str
-    file_type: str  # 'voice', 'video', 'sticker' (пасты не рекомендуются)
+    file_type: str  # 'voice', 'video', 'sticker', 'paste'
     relevance_score: float  # 0-1, насколько подходит
     reason: str  # почему именно этот файл
     metadata: Dict[str, Any]  # дополнительная информация
@@ -23,12 +23,11 @@ class MediaRecommender:
 
     def __init__(self, library_base_path: str):
         self.library_base_path = Path(library_base_path)
-        # Обрабатываемые типы медиафайлов
-        # НЕ включаем 'pastes' - пасты не рекомендуются как медиа
         self.media_types = {
-            'voices': 'voice',      # Голосовые сообщения
-            'video': 'video',       # Видео и фото файлы
-            'stickers': 'sticker'   # Стикеры
+            'voices': 'voice',
+            'video': 'video',
+            'stickers': 'sticker',
+            'pastes': 'paste'
         }
         self._load_file_metadata()
 
@@ -47,29 +46,6 @@ class MediaRecommender:
 
         logger.info(f"Загружено метаданных для {len(self.file_metadata)} медиафайлов")
 
-    def _load_description_file(self, file_path: Path) -> Optional[Dict[str, str]]:
-        """Загружает файл описания для медиафайла"""
-        desc_file = file_path.parent / f"{file_path.stem}.txt"
-
-        if not desc_file.exists():
-            return None
-
-        try:
-            with open(desc_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-            description = {}
-            for line in content.split('\n'):
-                line = line.strip()
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    description[key.strip().lower()] = value.strip()
-
-            return description
-        except Exception as e:
-            logger.warning(f"Ошибка чтения описания {desc_file}: {e}")
-            return None
-
     def _analyze_and_cache_file(self, file_path: Path, media_type: str) -> None:
         """Анализирует файл и кэширует его метаданные"""
         try:
@@ -84,31 +60,11 @@ class MediaRecommender:
                 'size': file_path.stat().st_size,
                 'keywords': self._extract_keywords_from_filename(filename),
                 'themes': [],
-                'content_types': [],
-                'description': None,
-                'context': None,
-                'emotion': 'neutral'
+                'content_types': []
             }
 
-            # Загружаем файл описания если есть
-            description_data = self._load_description_file(file_path)
-            if description_data:
-                metadata['description'] = description_data
-                metadata['context'] = description_data.get('контекст', '')
-                metadata['emotion'] = description_data.get('эмоция', 'neutral')
-
-                # Переопределяем темы и типы из описания
-                theme_from_desc = description_data.get('тема', '')
-                type_from_desc = description_data.get('тип', '')
-
-                if theme_from_desc:
-                    metadata['themes'] = [theme_from_desc]
-                if type_from_desc:
-                    metadata['content_types'] = [type_from_desc]
-
-            # Если нет описания, анализируем по имени файла
-            if not metadata['themes']:
-                self._infer_themes_from_filename(file_path.name)
+            # Определяем темы и типы контента
+            self._infer_themes_from_filename(file_path.name)
 
             self.file_metadata[str(file_path)] = metadata
 
@@ -223,8 +179,7 @@ class MediaRecommender:
         incoming_message: str,
         history_context: Optional[List[str]] = None,
         max_recommendations: int = 3,
-        api_key: Optional[str] = None,
-        strict_filtering: bool = True
+        api_key: Optional[str] = None
     ) -> List[MediaRecommendation]:
         """
         Рекомендует подходящие медиафайлы на основе входящего сообщения
@@ -256,35 +211,11 @@ class MediaRecommender:
             )
 
         # Иначе ранжируем по простым критериям
-        recommendations = self._rank_by_similarity(
+        return self._rank_by_similarity(
             incoming_message.lower(),
             candidate_files,
             max_recommendations
         )
-
-        # Строгая фильтрация: отбрасываем рекомендации с низкой уверенностью
-        if strict_filtering:
-            filtered_recommendations = []
-            for rec in recommendations:
-                # Проверяем минимальную уверенность
-                if rec.relevance_score >= 0.4:  # минимум 40%
-                    filtered_recommendations.append(rec)
-                else:
-                    logger.debug(f"Отфильтрована рекомендация с низкой уверенностью: {rec.filename} ({rec.relevance_score:.2f})")
-
-            # Если после фильтрации осталось мало рекомендаций, возвращаем только самые лучшие
-            if len(filtered_recommendations) < max_recommendations and filtered_recommendations:
-                # Берем только топ рекомендацию, если она очень уверенная
-                if filtered_recommendations[0].relevance_score >= 0.6:
-                    return filtered_recommendations[:1]
-                else:
-                    # Если нет уверенных рекомендаций, возвращаем пустой список
-                    logger.info(f"Нет подходящих медиафайлов для сообщения: '{incoming_message[:50]}...'")
-                    return []
-
-            return filtered_recommendations
-
-        return recommendations
 
     def _analyze_message_context(self, message: str) -> Dict[str, Any]:
         """Анализирует контекст входящего сообщения"""
@@ -534,11 +465,6 @@ class MediaRecommender:
             if theme_score > 0:
                 score += theme_score * 3
                 reasons.append(f"{theme_score} совпадений по темам")
-
-            # Бонус за наличие файла описания
-            if metadata.get('description'):
-                score += 1
-                reasons.append("есть подробное описание")
 
             # Оценка по типу контента
             if context['is_question']:
