@@ -558,8 +558,8 @@
     "accounts": {
       "+79014509354": {
         "phone": "+79014509354",
-        "api_id": 29762521,
-        "device": "iPhone 12",
+        "api_id": 20149796,
+        "device": "Pixel 7",
         "session_file": "sessions\\8412294171\\+79014509354.session",
         "proxy_override": {
           "enabled": false
@@ -567,59 +567,11 @@
         "proxy_desc": "None",
         "proxy_dynamic": false,
         "full_name": "Катя"
-      },
-      "+79014508538": {
-        "phone": "+79014508538",
-        "api_id": 24266525,
-        "device": "iPhone 13 Pro",
-        "session_file": "sessions\\8412294171\\+79014508538.session",
-        "proxy_override": {
-          "enabled": false
-        },
-        "proxy_desc": "None",
-        "proxy_dynamic": false,
-        "full_name": "Анна"
-      },
-      "+79216377325": {
-        "phone": "+79216377325",
-        "api_id": 20149796,
-        "device": "iPhone SE (2nd)",
-        "session_file": "sessions\\8412294171\\+79216377325.session",
-        "proxy_override": {
-          "enabled": false
-        },
-        "proxy_desc": "None",
-        "proxy_dynamic": false,
-        "full_name": "Лера"
-      },
-      "+79014509206": {
-        "phone": "+79014509206",
-        "api_id": 29762521,
-        "device": "iPad Pro 11",
-        "session_file": "sessions\\8412294171\\+79014509206.session",
-        "proxy_override": {
-          "enabled": false
-        },
-        "proxy_desc": "None",
-        "proxy_dynamic": false,
-        "full_name": "Ира"
-      },
-      "+79282594761": {
-        "phone": "+79282594761",
-        "api_id": 24266525,
-        "device": "iPhone XR",
-        "session_file": "sessions\\8412294171\\+79282594761.session",
-        "proxy_override": {
-          "enabled": false
-        },
-        "proxy_desc": "None",
-        "proxy_dynamic": false,
-        "full_name": "Настя"
       }
     },
     "rotation_state": {
-      "api_idx": 1,
-      "dev_idx": 4
+      "api_idx": 2,
+      "dev_idx": 5
     },
     "proxy": {}
   }

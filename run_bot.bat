@@ -31,7 +31,7 @@ echo Используется Python: %PYTHON_CMD%
 
 REM --- Установка API ключа ---
 REM 🔴 ВАЖНО: Замените этот ключ на ваш реальный перед запуском!
-set "OPENAI_API_KEY=your-openai-api-key-here""
+set "OPENAI_API_KEY=your-openai-api-key-here"
 echo.
 echo OK: OpenAI API ключ установлен
 
@@ -102,7 +102,7 @@ if not defined OPENAI_API_KEY (
     pause
     exit /b 1
 )
-python -X dev tg_manager_bot_dynamic.py
+python tg_manager_bot_dynamic.py
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.

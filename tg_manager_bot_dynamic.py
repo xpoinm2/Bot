@@ -3,21 +3,28 @@ from __future__ import annotations  # Updated
 import asyncio
 import os
 
-# Загружаем переменные окружения из .env файла
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-    print("OK: Переменные из .env файла загружены")
-
-    # Проверяем наличие API ключа
+def initialize_api_key():
+    """Инициализация API ключа - вызывается только при запуске как основного скрипта"""
+    # Проверяем наличие API ключа в переменных окружения (из run_bot.bat)
     api_key = os.getenv("OPENAI_API_KEY")
-    if api_key:
-        print(f"OK: OPENAI_API_KEY найден (длина: {len(api_key)} символов)")
+    if api_key and api_key != "your-openai-api-key-here":
+        print(f"OK: OPENAI_API_KEY найден в переменных окружения (длина: {len(api_key)} символов)")
     else:
-        print("ERROR: OPENAI_API_KEY не найден в переменных окружения")
+        # Если ключа нет в переменных окружения, пытаемся загрузить из .env файла
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            print("OK: Переменные из .env файла загружены")
 
-except ImportError:
-    print("WARNING: python-dotenv не установлен, переменные окружения не загружены")
+            # Проверяем наличие API ключа после загрузки .env
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key:
+                print(f"OK: OPENAI_API_KEY найден (длина: {len(api_key)} символов)")
+            else:
+                print("ERROR: OPENAI_API_KEY не найден в переменных окружения и .env файле")
+
+        except ImportError:
+            print("WARNING: python-dotenv не установлен, переменные окружения не загружены")
 
 import base64
 import contextlib
@@ -3335,10 +3342,16 @@ class AccountWorker:
                     except Exception:
                         peer = None
                 # AI автоответчик (шаблоны + GPT-подсказки)
+                ai_processed = False
                 try:
-                    await handle_ai_autoreply(self, ev, peer)
+                    ai_processed = await handle_ai_autoreply(self, ev, peer)
                 except Exception as ai_err:
                     log.warning("[%s] ошибка AI-автоответа: %s", self.phone, ai_err)
+
+                # Если AI уже обработал сообщение, прекращаем дальнейшую обработку
+                if ai_processed:
+                    return
+
                 account_meta = get_account_meta(self.owner_id, self.phone) or {}
                 account_display = self.account_name or account_meta.get("full_name")
                 if not account_display:
@@ -4350,19 +4363,19 @@ def _format_ai_chosen_for_admin(task_id: str, pr: PendingAIReply):
     return text, buttons
 
 
-async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> None:
+async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> bool:
     # Не отвечаем на исходящие и не-личные чаты
     try:
         if getattr(ev, "out", False):
-            return
+            return False
         if not getattr(ev, "is_private", False):
-            return
+            return False
     except Exception:
-        return
+        return False
 
     user_text = (getattr(ev, "raw_text", None) or "").strip()
     if not user_text:
-        return
+        return False
 
     # Подготовка профиля и истории для промпта
     account_meta = get_account_meta(worker.owner_id, worker.phone) or {}
@@ -4422,7 +4435,7 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> None:
         )
     except Exception as e:
         log.warning("[%s] ошибка GPT-подсказки: %s", worker.phone, e)
-        return
+        return False
 
     # Чистим, удаляем пустые и дубликаты
     cleaned: List[str] = []
@@ -4435,7 +4448,7 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> None:
         cleaned.append(v)
 
     if not cleaned:
-        return
+        return False
 
     # Если вдруг меньше 3, дублируем последние, чтобы всегда было 3 кнопки
     while len(cleaned) < 3:
@@ -4492,6 +4505,9 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> None:
             worker.phone,
             send_err,
         )
+        return False
+
+    return True
 
 
 def _extract_message_id(sent: Any) -> Optional[int]:
@@ -7877,6 +7893,9 @@ async def startup():
     log.info("Startup notification suppressed to avoid spamming users.")
 
 def main():
+    # Инициализируем API ключ только при запуске как основного скрипта
+    initialize_api_key()
+
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
