@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class MediaRecommendation:
     """Рекомендация медиафайла для ответа"""
     file_path: str
-    file_type: str  # 'voice', 'video', 'sticker', 'paste'
+    file_type: str  # 'voice', 'video'
     relevance_score: float  # 0-1, насколько подходит
     reason: str  # почему именно этот файл
     metadata: Dict[str, Any]  # дополнительная информация
@@ -25,9 +25,7 @@ class MediaRecommender:
         self.library_base_path = Path(library_base_path)
         self.media_types = {
             'voices': 'voice',
-            'video': 'video',
-            'stickers': 'sticker',
-            'pastes': 'paste'
+            'video': 'video'
         }
         self._load_file_metadata()
 
