@@ -6131,8 +6131,9 @@ async def on_cb(ev):
 
     if data.startswith("history_toggle:"):
         try:
-            _, thread_id, mode = data.split(":", 2)
-        except ValueError:
+            payload = data.split("history_toggle:", 1)[1]
+            thread_id, mode = payload.rsplit(":", 1)
+        except (IndexError, ValueError):
             await answer_callback(ev, "Некорректные данные", alert=True)
             return
         phone, chat_id = _parse_history_thread_id(thread_id)
