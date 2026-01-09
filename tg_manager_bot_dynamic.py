@@ -3455,11 +3455,13 @@ class AccountWorker:
                 if not account_display:
                     account_display = self.phone
 
-                if not isinstance(sender_entity, User):
-                    return
-                
                 sender_name = get_display_name(sender_entity) if sender_entity else None
                 sender_username = getattr(sender_entity, "username", None) if sender_entity else None
+                if not sender_name:
+                    chat_entity = getattr(ev, "chat", None)
+                    if chat_entity is not None:
+                        with contextlib.suppress(Exception):
+                            sender_name = get_display_name(chat_entity)
                 tag_value = f"@{sender_username}" if sender_username else "hidden"
                 sender_id_display = str(ev.sender_id) if ev.sender_id is not None else "unknown"
 
