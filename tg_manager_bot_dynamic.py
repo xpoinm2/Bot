@@ -2601,6 +2601,8 @@ class _NotificationThreadState:
     header_lines: List[str]
     history_html: str
     history_collapsed: bool = True
+    ai_block: Optional[str] = None
+    ai_buttons: Optional[List[List[Button]]] = None
 
 
 notification_threads: Dict[int, Dict[str, _NotificationThreadState]] = defaultdict(dict)
@@ -2737,18 +2739,61 @@ def _build_notification_text(
     bullet_lines: List[str],
     history_html: str,
     collapsed: bool,
+    ai_block: Optional[str] = None,
 ) -> str:
     lines = list(header_lines)
     lines.append("")
     lines.append("Собеседник пишет:")
     lines.extend(bullet_lines)
     lines.append("")
+    if ai_block:
+        lines.extend(ai_block.splitlines())
+        lines.append("")
     if collapsed:
         lines.append("⏵ История диалога (последние 10 сообщений)")
     else:
         lines.append("⏷ История диалога (последние 10 сообщений)")
         if history_html:
             lines.append(history_html)
+    return "\n".join(lines)
+
+
+def _format_ai_recommendations_block(pr: "PendingAIReply") -> Optional[str]:
+    variants = pr.suggested_variants or []
+    if not variants:
+        return None
+    lines = ["🤖 Рекомендации ИИ:"]
+    for i, variant in enumerate(variants, start=1):
+        suffix = ""
+        if pr.recommended_index is not None and pr.recommended_index == i - 1:
+            suffix = "  ⭐️"
+        lines.append(f"{i}) {html.escape(variant)}{suffix}")
+    if pr.recommendation_text:
+        lines.append("")
+        lines.append(f"💡 {html.escape(pr.recommendation_text)}")
+    elif pr.recommended_index is not None:
+        lines.append("")
+        lines.append(f"💡 Рекомендован вариант №{pr.recommended_index + 1}.")
+    if pr.media_suggestions:
+        lines.append("")
+        lines.append("🎞 Рекомендуемые медиафайлы:")
+        media_emoji = {
+            "voice": "🎙",
+            "video": "📹",
+            "sticker": "💟",
+            "paste": "📄",
+        }
+        for idx, media in enumerate(pr.media_suggestions, start=1):
+            emoji = media_emoji.get(media.get("file_type", ""), "📎")
+            filename = media.get("filename", "Файл")
+            score = media.get("relevance_score", 0)
+            reason = media.get("reason", "")
+            line = f"{emoji} {idx}) {html.escape(filename)} ({score:.1%})"
+            if reason:
+                line += f" — {html.escape(reason)}"
+            lines.append(line)
+    lines.append("")
+    lines.append("Выбери вариант кнопками ниже.")
     return "\n".join(lines)
 
 
@@ -3440,15 +3485,18 @@ class AccountWorker:
                     except Exception:
                         peer = None
                 # AI автоответчик (шаблоны + GPT-подсказки)
-                ai_processed = False
+                ai_task_id: Optional[str] = None
                 try:
-                    ai_processed = await handle_ai_autoreply(self, ev, peer)
+                    ai_task_id = await handle_ai_autoreply(self, ev, peer)
                 except Exception as ai_err:
                     log.warning("[%s] ошибка AI-автоответа: %s", self.phone, ai_err)
-
-                # Если AI уже обработал сообщение, прекращаем дальнейшую обработку
-                if ai_processed:
-                    return
+                ai_block: Optional[str] = None
+                ai_buttons: Optional[List[List[Button]]] = None
+                if ai_task_id:
+                    pr = pending_ai_replies.get(ai_task_id)
+                    if pr:
+                        ai_block = _format_ai_recommendations_block(pr)
+                        _, ai_buttons = _format_ai_variants_for_admin(ai_task_id, pr)
 
                 account_meta = get_account_meta(self.owner_id, self.phone) or {}
                 account_display = self.account_name or account_meta.get("full_name")
@@ -3565,11 +3613,14 @@ class AccountWorker:
                     buttons = _build_notification_buttons(
                         ctx_id, thread_id, state.history_collapsed
                     )
+                    if ai_buttons:
+                        buttons = [*buttons, *ai_buttons]
                     notification_text = _build_notification_text(
                         state.header_lines,
                         state.bullets,
                         state.history_html,
                         state.history_collapsed,
+                        ai_block,
                     )
                     try:
                         await bot_client.edit_message(
@@ -3605,15 +3656,21 @@ class AccountWorker:
                                 header_lines=header_snapshot,
                                 history_html=history_html,
                                 history_collapsed=state.history_collapsed,
+                                ai_block=ai_block,
+                                ai_buttons=ai_buttons,
                             )
                     else:
                         state.header_lines = header_snapshot
                         state.history_html = history_html
+                        state.ai_block = ai_block
+                        state.ai_buttons = ai_buttons
                 else:
                     bullets = [bullet_entry]
                     buttons = _build_notification_buttons(ctx_id, thread_id, True)
+                    if ai_buttons:
+                        buttons = [*buttons, *ai_buttons]
                     notification_text = _build_notification_text(
-                        header_snapshot, bullets, history_html, True
+                        header_snapshot, bullets, history_html, True, ai_block
                     )
                     await safe_send_admin(
                         notification_text,
@@ -3633,6 +3690,8 @@ class AccountWorker:
                             header_lines=header_snapshot,
                             history_html=history_html,
                             history_collapsed=True,
+                            ai_block=ai_block,
+                            ai_buttons=ai_buttons,
                         )
                 if media_bytes and media_filename:
                     media_caption_lines = [
@@ -4462,19 +4521,19 @@ def _format_ai_chosen_for_admin(task_id: str, pr: PendingAIReply):
     return text, buttons
 
 
-async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> bool:
+async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> Optional[str]:
     # Не отвечаем на исходящие и не-личные чаты
     try:
         if getattr(ev, "out", False):
-            return False
+            return None
         if not getattr(ev, "is_private", False):
-            return False
+            return None
     except Exception:
-        return False
+        return None
 
     user_text = (getattr(ev, "raw_text", None) or "").strip()
     if not user_text:
-        return False
+        return None
 
     # Подготовка профиля и истории для промпта
     account_meta = get_account_meta(worker.owner_id, worker.phone) or {}
@@ -4534,7 +4593,7 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> bool:
         )
     except Exception as e:
         log.warning("[%s] ошибка GPT-подсказки: %s", worker.phone, e)
-        return False
+        return None
 
     # Чистим, удаляем пустые и дубликаты
     cleaned: List[str] = []
@@ -4547,7 +4606,7 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> bool:
         cleaned.append(v)
 
     if not cleaned:
-        return False
+        return None
 
     # Если вдруг меньше 3, дублируем последние, чтобы всегда было 3 кнопки
     while len(cleaned) < 3:
@@ -4590,23 +4649,7 @@ async def handle_ai_autoreply(worker: "AccountWorker", ev, peer) -> bool:
     )
     pending_ai_replies[task_id] = pr
 
-    text_for_admin, buttons = _format_ai_variants_for_admin(task_id, pr)
-
-    try:
-        await safe_send_admin(
-            text_for_admin,
-            owner_id=worker.owner_id,
-            buttons=buttons,
-        )
-    except Exception as send_err:
-        log.warning(
-            "[%s] не удалось отправить AI-подсказку админу: %s",
-            worker.phone,
-            send_err,
-        )
-        return False
-
-    return True
+    return task_id
 
 
 def _extract_message_id(sent: Any) -> Optional[int]:
@@ -6040,11 +6083,14 @@ async def on_cb(ev):
             await answer_callback(ev, "Некорректное состояние", alert=True)
             return
         buttons = _build_notification_buttons(state.ctx_id, thread_id, collapsed)
+        if state.ai_block:
+            buttons = [*buttons, *state.ai_buttons]
         text = _build_notification_text(
             state.header_lines,
             state.bullets,
             state.history_html,
             collapsed,
+            state.ai_block,
         )
         try:
             await ev.edit(text, buttons=buttons, parse_mode="html", link_preview=False)
