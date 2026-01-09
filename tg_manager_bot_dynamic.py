@@ -2601,6 +2601,7 @@ class _NotificationThreadState:
     header_lines: List[str]
     history_html: str
     history_collapsed: bool = True
+    peer: Optional[Any] = None
     ai_block: Optional[str] = None
     ai_buttons: Optional[List[List[Button]]] = None
 
@@ -2790,8 +2791,15 @@ def _format_history_entry(message: Message) -> str:
 
 
 async def _build_history_html(client: TelegramClient, peer: Any, limit: int = MAX_HISTORY_MESSAGES) -> str:
+    if peer is None:
+        return "<i>История недоступна</i>"
+    resolved_peer = peer
     try:
-        messages = await client.get_messages(peer, limit=limit)
+        resolved_peer = await client.get_input_entity(peer)
+    except Exception as exc:
+        log.debug("History peer resolve failed for %s: %s", peer, exc)
+    try:
+        messages = await client.get_messages(resolved_peer, limit=limit)
     except Exception as exc:
         log.warning("Не удалось загрузить историю диалога: %s", exc)
         return "<i>Не удалось загрузить историю</i>"
@@ -3692,6 +3700,8 @@ class AccountWorker:
                     state.ctx_id = ctx_id
                     state.header_lines = header_snapshot
                     state.history_html = history_html
+                    if peer is not None:
+                        state.peer = peer
                     buttons = _build_notification_buttons(
                         ctx_id, thread_id, state.history_collapsed
                     )
@@ -3738,6 +3748,7 @@ class AccountWorker:
                                 header_lines=header_snapshot,
                                 history_html=history_html,
                                 history_collapsed=state.history_collapsed,
+                                peer=peer or state.peer,
                                 ai_block=ai_block,
                                 ai_buttons=ai_buttons,
                             )
@@ -3772,6 +3783,7 @@ class AccountWorker:
                             header_lines=header_snapshot,
                             history_html=history_html,
                             history_collapsed=True,
+                            peer=peer,
                             ai_block=ai_block,
                             ai_buttons=ai_buttons,
                         )
@@ -6175,7 +6187,7 @@ async def on_cb(ev):
                 if worker and worker.client:
                     state.history_html = await _build_history_html(
                         worker.client,
-                        chat_id,
+                        state.peer or chat_id,
                         limit=MAX_HISTORY_MESSAGES,
                     )
         elif mode == "close":
