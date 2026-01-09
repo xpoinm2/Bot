@@ -5864,56 +5864,63 @@ async def on_cb(ev):
             # Определяем peer для отправки
             peer = pr.peer_id if isinstance(pr.peer_id, int) else None
             reply_to = pr.msg_id if pr.reply_to_source else None
+            sent = None
 
-            if file_type == 'voice':
-                await worker.client.send_file(
-                    peer,
+            if file_type == "voice":
+                sent = await worker.send_voice(
+                    pr.peer_id,
                     file_path,
-                    voice_note=True,
-                    reply_to=reply_to
+                    peer=peer,
+                    reply_to_msg_id=reply_to,
                 )
-            elif file_type == 'video':
-                await worker.client.send_file(
-                    peer,
+            elif file_type == "video":
+                sent = await worker.send_media(
+                    pr.peer_id,
                     file_path,
-                    reply_to=reply_to
+                    peer=peer,
+                    reply_to_msg_id=reply_to,
                 )
-            elif file_type == 'sticker':
-                await worker.client.send_file(
-                    peer,
+            elif file_type == "sticker":
+                sent = await worker.send_sticker(
+                    pr.peer_id,
                     file_path,
-                    reply_to=reply_to
+                    peer=peer,
+                    reply_to_msg_id=reply_to,
                 )
             else:  # paste или другие файлы
                 # Для паст читаем содержимое и отправляем как текст
-                if file_type == 'paste':
+                if file_type == "paste":
                     try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
+                        with open(file_path, "r", encoding="utf-8") as f:
                             paste_content = f.read().strip()
                         if paste_content:
-                            await worker.client.send_message(
-                                peer,
+                            sent = await worker.send_outgoing(
+                                pr.peer_id,
                                 paste_content,
-                                reply_to=reply_to
+                                peer=peer,
+                                reply_to_msg_id=reply_to,
                             )
                     except Exception as e:
                         log.warning(f"Не удалось прочитать пасту {file_path}: {e}")
                         await answer_callback(ev, "Ошибка чтения пасты", alert=True)
                         return
                 else:
-                    await worker.client.send_file(
-                        peer,
+                    sent = await worker.send_file(
+                        pr.peer_id,
                         file_path,
-                        reply_to=reply_to
+                        peer=peer,
+                        reply_to_msg_id=reply_to,
                     )
 
             # Регистрируем отправленное сообщение для контроля
+            msg_id = _extract_message_id(sent)
             register_outgoing_action(
                 admin_id,
                 phone=pr.phone,
                 chat_id=pr.peer_id,
-                msg_id=None,  # будет установлено позже
-                message_type="media" if file_type != 'paste' else "text"
+                peer=peer,
+                msg_id=msg_id,
+                message_type="media" if file_type != "paste" else "text",
             )
 
             # Удаляем задачу из ожидающих
