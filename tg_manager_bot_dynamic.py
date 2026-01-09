@@ -39,7 +39,7 @@ import shutil
 import socket
 import mimetypes
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import OrderedDict, defaultdict, deque
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Optional, Any, List, Tuple, Set, TYPE_CHECKING, Callable, cast
@@ -1337,23 +1337,47 @@ async def _send_file_to_chat(ctx_info: Dict[str, Any], file_path: str, file_type
     reply_to = ctx_info.get("reply_to_msg_id")
 
     if file_type == 'voice':
-        await worker.client.send_file(
+        sent = await worker.client.send_file(
             peer,
             file_path,
             voice_note=True,
             reply_to=reply_to
         )
+        _append_history_entry(
+            account_id,
+            peer,
+            "🧑‍💼 Вы",
+            None,
+            f"Голосовое сообщение: {os.path.basename(file_path)}",
+            getattr(sent, "date", None),
+        )
     elif file_type == 'video':
-        await worker.client.send_file(
+        sent = await worker.client.send_file(
             peer,
             file_path,
             reply_to=reply_to
         )
+        _append_history_entry(
+            account_id,
+            peer,
+            "🧑‍💼 Вы",
+            None,
+            f"Видео: {os.path.basename(file_path)}",
+            getattr(sent, "date", None),
+        )
     elif file_type == 'sticker':
-        await worker.client.send_file(
+        sent = await worker.client.send_file(
             peer,
             file_path,
             reply_to=reply_to
+        )
+        _append_history_entry(
+            account_id,
+            peer,
+            "🧑‍💼 Вы",
+            None,
+            f"Стикер: {os.path.basename(file_path)}",
+            getattr(sent, "date", None),
         )
     elif file_type == 'paste':
         # Для паст читаем содержимое и отправляем как текст
@@ -1361,18 +1385,34 @@ async def _send_file_to_chat(ctx_info: Dict[str, Any], file_path: str, file_type
             with open(file_path, 'r', encoding='utf-8') as f:
                 paste_content = f.read().strip()
             if paste_content:
-                await worker.client.send_message(
+                sent = await worker.client.send_message(
                     peer,
                     paste_content,
                     reply_to=reply_to
                 )
+                _append_history_entry(
+                    account_id,
+                    peer,
+                    "🧑‍💼 Вы",
+                    paste_content,
+                    None,
+                    getattr(sent, "date", None),
+                )
         except Exception as e:
             raise Exception(f"Не удалось прочитать пасту: {e}")
     else:
-        await worker.client.send_file(
+        sent = await worker.client.send_file(
             peer,
             file_path,
             reply_to=reply_to
+        )
+        _append_history_entry(
+            account_id,
+            peer,
+            "🧑‍💼 Вы",
+            None,
+            f"Файл: {os.path.basename(file_path)}",
+            getattr(sent, "date", None),
         )
 
 
@@ -2573,6 +2613,47 @@ def _make_thread_id(phone: str, chat_id: int) -> str:
     return f"{phone}:{chat_id}"
 
 
+def _sanitize_history_component(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("_")
+    return cleaned or "unknown"
+
+
+def _history_file_path(phone: str, chat_id: int) -> str:
+    safe_phone = _sanitize_history_component(phone)
+    safe_chat = _sanitize_history_component(str(chat_id))
+    return os.path.join("history", f"{safe_phone}_{safe_chat}.txt")
+
+
+def _format_history_timestamp(message_date: Optional[datetime]) -> str:
+    timestamp = message_date or datetime.utcnow()
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(timezone.utc).replace(tzinfo=None)
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _append_history_entry(
+    phone: str,
+    chat_id: int,
+    sender_label: str,
+    text: Optional[str],
+    media_description: Optional[str],
+    message_date: Optional[datetime] = None,
+) -> None:
+    if not text and not media_description:
+        return
+    os.makedirs("history", exist_ok=True)
+    ts = _format_history_timestamp(message_date)
+    parts = [f"[{ts}] {sender_label}:"]
+    if text:
+        parts.append(text.strip())
+    if media_description:
+        parts.append(f"[{media_description}]")
+    line = " ".join(parts)
+    path = _history_file_path(phone, chat_id)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(f"{line}\n")
+
+
 def _format_multiline_html(text: str) -> str:
     escaped = html.escape(text.strip())
     return escaped.replace("\n", "<br>")
@@ -3116,6 +3197,14 @@ class AccountWorker:
             if mark_read_msg_id is not None:
                 with contextlib.suppress(Exception):
                     await client.send_read_acknowledge(peer, max_id=mark_read_msg_id)
+            _append_history_entry(
+                self.phone,
+                chat_id,
+                "🧑‍💼 Вы",
+                message,
+                None,
+                getattr(sent, "date", None),
+            )
         except (UserDeactivatedBanError, PhoneNumberBannedError) as e:
             await self._handle_account_disabled("banned", e)
             raise RuntimeError("Аккаунт заблокирован Telegram")
@@ -3331,7 +3420,16 @@ class AccountWorker:
                 if getattr(sender_entity, "bot", False):
                     return
 
-                txt = ev.raw_text or ""
+                txt = (ev.raw_text or "").strip()
+                media_code, media_description_raw = _describe_media(ev)
+                _append_history_entry(
+                    self.phone,
+                    ev.chat_id,
+                    "👥 Собеседник",
+                    txt,
+                    media_description_raw,
+                    getattr(ev, "date", None),
+                )
                 ctx_id = secrets.token_hex(4)
                 peer = None
                 try:
@@ -3396,7 +3494,6 @@ class AccountWorker:
                 media_filename: Optional[str] = None
                 media_description: Optional[str] = None
                 media_notice: Optional[str] = None
-                media_code, media_description_raw = _describe_media(ev)
                 file_obj = getattr(ev, "file", None)
                 media_size = getattr(file_obj, "size", None)
                 has_media = bool(getattr(ev, "media", None))
@@ -5921,6 +6018,20 @@ async def on_cb(ev):
             return
         if mode == "open":
             collapsed = False
+            try:
+                phone, chat_id_raw = thread_id.split(":", 1)
+                chat_id = int(chat_id_raw)
+            except ValueError:
+                phone = ""
+                chat_id = 0
+            if phone and chat_id:
+                worker = await ensure_worker_running(admin_id, phone)
+                if worker and worker.client:
+                    state.history_html = await _build_history_html(
+                        worker.client,
+                        chat_id,
+                        limit=MAX_HISTORY_MESSAGES,
+                    )
         elif mode == "close":
             collapsed = True
         else:
