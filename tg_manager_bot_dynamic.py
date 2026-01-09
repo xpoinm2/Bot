@@ -2637,26 +2637,62 @@ def _parse_history_thread_id(thread_id: str) -> Tuple[str, int]:
 
 def _read_history_file(phone: str, chat_id: int, limit: int = MAX_HISTORY_MESSAGES) -> Optional[List[str]]:
     if not phone or not chat_id:
+        log.warning(
+            "History read skipped: missing identifiers (phone=%s, chat_id=%s).",
+            phone,
+            chat_id,
+        )
         return None
     path = _history_file_path(phone, chat_id)
     if not os.path.exists(path):
+        log.warning(
+            "History file not found for phone=%s chat_id=%s path=%s.",
+            phone,
+            chat_id,
+            path,
+        )
         return None
     with open(path, "r", encoding="utf-8") as handle:
         lines = [line.strip() for line in handle if line.strip()]
     if not lines:
+        log.info(
+            "History file empty for phone=%s chat_id=%s path=%s.",
+            phone,
+            chat_id,
+            path,
+        )
         return []
     return lines[-limit:]
 
 
 async def _send_history_from_file(admin_id: int, phone: str, chat_id: int) -> bool:
+    log.info(
+        "History fetch requested by admin_id=%s for phone=%s chat_id=%s.",
+        admin_id,
+        phone,
+        chat_id,
+    )
     history_lines = _read_history_file(phone, chat_id)
     if history_lines is None:
+        log.warning(
+            "History unavailable for admin_id=%s phone=%s chat_id=%s.",
+            admin_id,
+            phone,
+            chat_id,
+        )
         return False
     if history_lines:
         text = "История диалога (последние 10 сообщений):\n" + "\n".join(history_lines)
     else:
         text = "История пуста."
     await bot_client.send_message(admin_id, text)
+    log.info(
+        "History sent to admin_id=%s for phone=%s chat_id=%s (lines=%s).",
+        admin_id,
+        phone,
+        chat_id,
+        len(history_lines),
+    )
     return True
 
 
@@ -2676,6 +2712,12 @@ def _append_history_entry(
     message_date: Optional[datetime] = None,
 ) -> None:
     if not text and not media_description:
+        log.info(
+            "History append skipped: empty entry (phone=%s, chat_id=%s, sender=%s).",
+            phone,
+            chat_id,
+            sender_label,
+        )
         return
     os.makedirs(HISTORY_DIR, exist_ok=True)
     ts = _format_history_timestamp(message_date)
@@ -2688,6 +2730,12 @@ def _append_history_entry(
     path = _history_file_path(phone, chat_id)
     with open(path, "a", encoding="utf-8") as handle:
         handle.write(f"{line}\n")
+    log.info(
+        "History appended for phone=%s chat_id=%s path=%s.",
+        phone,
+        chat_id,
+        path,
+    )
 
 
 def _format_multiline_html(text: str) -> str:
@@ -6093,6 +6141,11 @@ async def on_cb(ev):
             if await _send_history_from_file(admin_id, phone, chat_id):
                 await answer_callback(ev)
                 return
+            log.warning(
+                "History toggle failed: no notification state for admin_id=%s thread_id=%s.",
+                admin_id,
+                thread_id,
+            )
             await answer_callback(ev, "История недоступна", alert=True)
             return
         state = state_map.get(thread_id)
@@ -6100,6 +6153,11 @@ async def on_cb(ev):
             if await _send_history_from_file(admin_id, phone, chat_id):
                 await answer_callback(ev)
                 return
+            log.warning(
+                "History toggle failed: missing thread state for admin_id=%s thread_id=%s.",
+                admin_id,
+                thread_id,
+            )
             await answer_callback(ev, "История недоступна", alert=True)
             return
         if mode == "open":
