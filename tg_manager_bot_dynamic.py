@@ -2626,6 +2626,27 @@ def _history_file_path(phone: str, chat_id: int) -> str:
     return os.path.join("history", f"{safe_phone}_{safe_chat}.txt")
 
 
+def _parse_history_thread_id(thread_id: str) -> Tuple[str, int]:
+    try:
+        phone, chat_id_raw = thread_id.split(":", 1)
+        return phone, int(chat_id_raw)
+    except (ValueError, TypeError):
+        return "", 0
+
+
+def _read_history_file(phone: str, chat_id: int, limit: int = MAX_HISTORY_MESSAGES) -> Optional[List[str]]:
+    if not phone or not chat_id:
+        return None
+    path = _history_file_path(phone, chat_id)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        lines = [line.strip() for line in handle if line.strip()]
+    if not lines:
+        return []
+    return lines[-limit:]
+
+
 def _format_history_timestamp(message_date: Optional[datetime]) -> str:
     timestamp = message_date or datetime.utcnow()
     if timestamp.tzinfo is not None:
@@ -6053,22 +6074,37 @@ async def on_cb(ev):
         except ValueError:
             await answer_callback(ev, "Некорректные данные", alert=True)
             return
+        phone, chat_id = _parse_history_thread_id(thread_id)
         state_map = notification_threads.get(admin_id)
         if not state_map:
+            if mode == "open":
+                history_lines = _read_history_file(phone, chat_id)
+                if history_lines is not None:
+                    if history_lines:
+                        text = "История диалога (последние 10 сообщений):\n" + "\n".join(history_lines)
+                    else:
+                        text = "История пуста."
+                    await bot_client.send_message(admin_id, text)
+                    await answer_callback(ev)
+                    return
             await answer_callback(ev, "История недоступна", alert=True)
             return
         state = state_map.get(thread_id)
         if not state:
+            if mode == "open":
+                history_lines = _read_history_file(phone, chat_id)
+                if history_lines is not None:
+                    if history_lines:
+                        text = "История диалога (последние 10 сообщений):\n" + "\n".join(history_lines)
+                    else:
+                        text = "История пуста."
+                    await bot_client.send_message(admin_id, text)
+                    await answer_callback(ev)
+                    return
             await answer_callback(ev, "История недоступна", alert=True)
             return
         if mode == "open":
             collapsed = False
-            try:
-                phone, chat_id_raw = thread_id.split(":", 1)
-                chat_id = int(chat_id_raw)
-            except ValueError:
-                phone = ""
-                chat_id = 0
             if phone and chat_id:
                 worker = await ensure_worker_running(admin_id, phone)
                 if worker and worker.client:
