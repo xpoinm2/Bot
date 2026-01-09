@@ -23,6 +23,7 @@ class MediaRecommender:
 
     def __init__(self, library_base_path: str):
         self.library_base_path = Path(library_base_path)
+        self.allowed_extensions = {".ogg", ".mp4", ".jpg", ".jpeg", ".png"}
         self.media_types = {
             'voices': 'voice',
             'video': 'video'
@@ -40,6 +41,8 @@ class MediaRecommender:
 
             for file_path in folder_path.rglob('*'):
                 if file_path.is_file():
+                    if file_path.suffix.lower() not in self.allowed_extensions:
+                        continue
                     self._analyze_and_cache_file(file_path, media_type)
 
         logger.info(f"Загружено метаданных для {len(self.file_metadata)} медиафайлов")

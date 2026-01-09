@@ -1279,9 +1279,12 @@ async def _execute_inline_reply_payload(admin_id: int, payload: Dict[str, Any]) 
     mode = payload.get("mode", "normal")
     mode_value = "reply" if mode == "reply" else "normal"
     variant = payload.get("variant")
-    error = await _activate_reply_session(admin_id, ctx, mode_value, show_prompt=False)
+    show_prompt = variant in {None, "text"}
+    error = await _activate_reply_session(admin_id, ctx, mode_value, show_prompt=show_prompt)
     if error:
         await send_temporary_message(admin_id, f"❌ {error}")
+        return
+    if variant in {None, "text"}:
         return
     if variant == "picker":
         file_type = payload.get("file_type")
@@ -1291,8 +1294,16 @@ async def _execute_inline_reply_payload(admin_id: int, payload: Dict[str, Any]) 
         if picker_error:
             await send_temporary_message(admin_id, f"❌ {picker_error}")
     elif variant == "back_to_categories":
-        # Ничего не делаем - просто активируем сессию для показа меню категорий
-        pass
+        ctx_info = get_reply_context_for_admin(ctx, admin_id)
+        if not ctx_info:
+            await send_temporary_message(admin_id, "❌ Контекст устарел.")
+            return
+        await show_interactive_message(
+            admin_id,
+            build_reply_prompt(ctx_info, mode_value),
+            buttons=build_reply_options_keyboard(ctx, mode_value),
+            replace=True,
+        )
     elif variant == "file":
         file_path = payload.get("file_path")
         file_type = payload.get("file_type")
@@ -4144,6 +4155,10 @@ class AccountWorker:
                 media_type = "video_note"
             else:
                 media_type = "video_note"  # Для неизвестных расширений кружок
+        else:
+            _, ext = os.path.splitext(file_path.lower())
+            if ext == ".mp4":
+                media_type = "video_note"
 
         try:
             if media_type == "photo":
