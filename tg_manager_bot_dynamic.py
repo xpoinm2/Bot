@@ -1278,11 +1278,11 @@ async def _execute_inline_reply_payload(admin_id: int, payload: Dict[str, Any]) 
         return
     mode = payload.get("mode", "normal")
     mode_value = "reply" if mode == "reply" else "normal"
+    variant = payload.get("variant")
     error = await _activate_reply_session(admin_id, ctx, mode_value)
     if error:
         await send_temporary_message(admin_id, f"❌ {error}")
         return
-    variant = payload.get("variant")
     if variant == "picker":
         file_type = payload.get("file_type")
         if not file_type:
@@ -1307,7 +1307,7 @@ async def _execute_inline_reply_payload(admin_id: int, payload: Dict[str, Any]) 
             return
 
         try:
-            await _send_file_to_chat(ctx_info, file_path, file_type)
+            await _send_file_to_chat(ctx_info, file_path, file_type, mode_value)
             await send_temporary_message(admin_id, f"✅ {REPLY_TEMPLATE_META[file_type]['label']} отправлен!")
         except Exception as exc:
             log.error("Failed to send file %r: %s", file_path, exc)
@@ -1324,7 +1324,12 @@ async def _process_inline_reply_token(admin_id: int, token: str) -> bool:
     return True
 
 
-async def _send_file_to_chat(ctx_info: Dict[str, Any], file_path: str, file_type: str) -> None:
+async def _send_file_to_chat(
+    ctx_info: Dict[str, Any],
+    file_path: str,
+    file_type: str,
+    mode: str,
+) -> None:
     """Send a file to the chat based on context info."""
     from .worker import get_worker_for_account
 
@@ -1334,85 +1339,56 @@ async def _send_file_to_chat(ctx_info: Dict[str, Any], file_path: str, file_type
         raise Exception(f"Аккаунт {account_id} недоступен")
 
     peer = ctx_info["chat_id"]
-    reply_to = ctx_info.get("reply_to_msg_id")
+    reply_to = ctx_info.get("msg_id") if mode == "reply" else None
+    mark_read_msg_id = ctx_info.get("msg_id")
 
-    if file_type == 'voice':
-        sent = await worker.client.send_file(
+    if file_type == "voice":
+        await worker.send_voice(
             peer,
             file_path,
-            voice_note=True,
-            reply_to=reply_to
+            ctx_info.get("peer"),
+            reply_to_msg_id=reply_to,
+            mark_read_msg_id=mark_read_msg_id,
         )
-        _append_history_entry(
-            account_id,
-            peer,
-            "🧑‍💼 Вы",
-            None,
-            f"Голосовое сообщение: {os.path.basename(file_path)}",
-            getattr(sent, "date", None),
-        )
-    elif file_type == 'video':
-        sent = await worker.client.send_file(
+    elif file_type == "video":
+        await worker.send_media(
             peer,
             file_path,
-            reply_to=reply_to
+            ctx_info.get("peer"),
+            reply_to_msg_id=reply_to,
+            mark_read_msg_id=mark_read_msg_id,
         )
-        _append_history_entry(
-            account_id,
-            peer,
-            "🧑‍💼 Вы",
-            None,
-            f"Видео: {os.path.basename(file_path)}",
-            getattr(sent, "date", None),
-        )
-    elif file_type == 'sticker':
-        sent = await worker.client.send_file(
+    elif file_type == "sticker":
+        await worker.send_sticker(
             peer,
             file_path,
-            reply_to=reply_to
+            ctx_info.get("peer"),
+            reply_to_msg_id=reply_to,
+            mark_read_msg_id=mark_read_msg_id,
         )
-        _append_history_entry(
-            account_id,
-            peer,
-            "🧑‍💼 Вы",
-            None,
-            f"Стикер: {os.path.basename(file_path)}",
-            getattr(sent, "date", None),
-        )
-    elif file_type == 'paste':
+    elif file_type == "paste":
         # Для паст читаем содержимое и отправляем как текст
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 paste_content = f.read().strip()
-            if paste_content:
-                sent = await worker.client.send_message(
-                    peer,
-                    paste_content,
-                    reply_to=reply_to
-                )
-                _append_history_entry(
-                    account_id,
-                    peer,
-                    "🧑‍💼 Вы",
-                    paste_content,
-                    None,
-                    getattr(sent, "date", None),
-                )
+            if not paste_content:
+                raise Exception("Паста пустая")
+            await worker.send_outgoing(
+                peer,
+                paste_content,
+                ctx_info.get("peer"),
+                reply_to_msg_id=reply_to,
+                mark_read_msg_id=mark_read_msg_id,
+            )
         except Exception as e:
             raise Exception(f"Не удалось прочитать пасту: {e}")
     else:
-        sent = await worker.client.send_file(
+        await worker.send_media(
             peer,
             file_path,
-            reply_to=reply_to
-        )
-        _append_history_entry(
-            account_id,
-            peer,
-            "🧑‍💼 Вы",
-            None,
-            f"Файл: {os.path.basename(file_path)}",
-            getattr(sent, "date", None),
+            ctx_info.get("peer"),
+            reply_to_msg_id=reply_to,
+            mark_read_msg_id=mark_read_msg_id,
         )
 
 
@@ -2273,7 +2249,8 @@ async def _activate_reply_session(admin_id: int, ctx: str, mode: str) -> Optiona
 
     await mark_dialog_read_for_context(ctx_info)
 
-    if reply_waiting.get(admin_id):
+    existing = reply_waiting.get(admin_id)
+    if existing and existing.get("ctx") != ctx:
         return "Уже жду сообщение"
 
     reply_waiting[admin_id] = {"ctx": ctx, "mode": mode}
