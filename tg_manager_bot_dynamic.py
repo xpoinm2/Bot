@@ -2609,6 +2609,7 @@ notification_threads: Dict[int, Dict[str, _NotificationThreadState]] = defaultdi
 
 MAX_NOTIFICATION_BULLETS = 20
 MAX_HISTORY_MESSAGES = 10
+HISTORY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history")
 
 
 def _make_thread_id(phone: str, chat_id: int) -> str:
@@ -2623,7 +2624,7 @@ def _sanitize_history_component(value: str) -> str:
 def _history_file_path(phone: str, chat_id: int) -> str:
     safe_phone = _sanitize_history_component(phone)
     safe_chat = _sanitize_history_component(str(chat_id))
-    return os.path.join("history", f"{safe_phone}_{safe_chat}.txt")
+    return os.path.join(HISTORY_DIR, f"{safe_phone}_{safe_chat}.txt")
 
 
 def _parse_history_thread_id(thread_id: str) -> Tuple[str, int]:
@@ -2676,7 +2677,7 @@ def _append_history_entry(
 ) -> None:
     if not text and not media_description:
         return
-    os.makedirs("history", exist_ok=True)
+    os.makedirs(HISTORY_DIR, exist_ok=True)
     ts = _format_history_timestamp(message_date)
     parts = [f"[{ts}] {sender_label}:"]
     if text:
