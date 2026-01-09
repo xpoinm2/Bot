@@ -1279,7 +1279,7 @@ async def _execute_inline_reply_payload(admin_id: int, payload: Dict[str, Any]) 
     mode = payload.get("mode", "normal")
     mode_value = "reply" if mode == "reply" else "normal"
     variant = payload.get("variant")
-    error = await _activate_reply_session(admin_id, ctx, mode_value)
+    error = await _activate_reply_session(admin_id, ctx, mode_value, show_prompt=False)
     if error:
         await send_temporary_message(admin_id, f"❌ {error}")
         return
@@ -1331,10 +1331,11 @@ async def _send_file_to_chat(
     mode: str,
 ) -> None:
     """Send a file to the chat based on context info."""
-    from .worker import get_worker_for_account
-
+    owner_id = ctx_info["owner_id"]
     account_id = ctx_info["phone"]
-    worker = get_worker_for_account(account_id)
+    worker = get_worker(owner_id, account_id)
+    if not worker:
+        worker = await ensure_worker_running(owner_id, account_id)
     if not worker:
         raise Exception(f"Аккаунт {account_id} недоступен")
 
@@ -2240,7 +2241,13 @@ def build_reply_options_keyboard(ctx: str, mode: str) -> List[List[Button]]:
     return rows
 
 
-async def _activate_reply_session(admin_id: int, ctx: str, mode: str) -> Optional[str]:
+async def _activate_reply_session(
+    admin_id: int,
+    ctx: str,
+    mode: str,
+    *,
+    show_prompt: bool = True,
+) -> Optional[str]:
     """Prepare reply workflow for the given admin/context."""
 
     ctx_info = get_reply_context_for_admin(ctx, admin_id)
@@ -2254,11 +2261,12 @@ async def _activate_reply_session(admin_id: int, ctx: str, mode: str) -> Optiona
         return "Уже жду сообщение"
 
     reply_waiting[admin_id] = {"ctx": ctx, "mode": mode}
-    await show_interactive_message(
-        admin_id,
-        build_reply_prompt(ctx_info, mode),
-        buttons=build_reply_options_keyboard(ctx, mode),
-    )
+    if show_prompt:
+        await show_interactive_message(
+            admin_id,
+            build_reply_prompt(ctx_info, mode),
+            buttons=build_reply_options_keyboard(ctx, mode),
+        )
     return None
 
 
