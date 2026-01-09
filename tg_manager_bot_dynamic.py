@@ -1485,7 +1485,13 @@ async def _render_inline_articles(
     builder: "InlineBuilder", articles: List[InlineArticle]
 ) -> List[Any]:
     results = []
-    for article in articles:
+    if len(articles) > LIBRARY_INLINE_RESULT_LIMIT:
+        logger.warning(
+            "Inline query results capped: %s -> %s",
+            len(articles),
+            LIBRARY_INLINE_RESULT_LIMIT,
+        )
+    for article in articles[:LIBRARY_INLINE_RESULT_LIMIT]:
         kwargs = {
             "title": article.title,
             "text": article.text,
