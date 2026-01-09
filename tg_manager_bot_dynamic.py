@@ -2178,6 +2178,17 @@ def build_asset_keyboard(
 ) -> List[List[Button]]:
     page_items, current_page, total_pages, _ = paginate_list(files, page)
     rows: List[List[Button]] = []
+    if file_type in {"voice", "video"}:
+        mode_token = "reply_to" if mode == "reply" else "reply"
+        rows.append(
+            [
+                Button.switch_inline(
+                    "🔍 Поиск",
+                    query=f"{mode_token} {ctx} {file_type}",
+                    same_peer=True,
+                )
+            ]
+        )
     base_index = current_page * ITEMS_PER_PAGE
     for offset, path in enumerate(page_items):
         base = os.path.splitext(os.path.basename(path))[0]
