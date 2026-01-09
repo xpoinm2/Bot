@@ -2723,7 +2723,7 @@ def _append_history_entry(
     ts = _format_history_timestamp(message_date)
     parts = [f"[{ts}] {sender_label}:"]
     if text:
-        parts.append(text.strip())
+        parts.append(_collapse_whitespace(text))
     if media_description:
         parts.append(f"[{media_description}]")
     line = " ".join(parts)
@@ -2761,9 +2761,9 @@ def _format_incoming_bullet(text: Optional[str], media_description: Optional[str
 
 def _format_history_entry(message: Message) -> str:
     sender_label = "🧑‍💼 Вы" if message.out else "👥 Собеседник"
-    raw_text = (message.raw_text or "").strip()
+    raw_text = _collapse_whitespace(message.raw_text or "")
     if raw_text:
-        text_html = _format_multiline_html(raw_text)
+        text_html = html.escape(raw_text)
     else:
         text_html = "<i>Без текста</i>"
     entry = f"<b>{sender_label}:</b> {text_html}"
