@@ -64,7 +64,9 @@ class MediaRecommender:
             }
 
             # Определяем темы и типы контента
-            self._infer_themes_from_filename(file_path.name)
+            themes, content_types = self._infer_themes_from_filename(file_path.name)
+            metadata['themes'] = themes
+            metadata['content_types'] = content_types
 
             self.file_metadata[str(file_path)] = metadata
 
@@ -88,91 +90,88 @@ class MediaRecommender:
 
         return keywords
 
-    def _infer_themes_from_filename(self, filename: str) -> List[str]:
+    def _infer_themes_from_filename(self, filename: str) -> Tuple[List[str], List[str]]:
         """Определяет темы и типы контента на основе имени файла"""
         themes = []
         content_types = []
+        filename_lower = filename.lower()
 
         # Анализ типа контента (вопрос/ответ/утверждение)
         question_words = ['как', 'что', 'где', 'когда', 'почему', 'зачем', 'кто', 'чей']
-        if any(word in filename.lower() for word in question_words) or filename.endswith('?'):
+        if any(word in filename_lower for word in question_words) or filename_lower.endswith('?'):
             content_types.append('question')
         else:
             content_types.append('statement')
 
         # Приветствия и прощания
-        if any(word in filename for word in ['здравствуй', 'привет', 'добрый', 'доброе', 'доброго', 'спокойной', 'хай', 'hello', 'hi']):
+        if any(word in filename_lower for word in ['здравствуй', 'привет', 'добрый', 'доброе', 'доброго', 'спокойной', 'хай', 'hello', 'hi']):
             themes.append('greeting')
-            if any(word in filename for word in ['здравствуй', 'привет', 'добрый', 'доброе', 'хай', 'hello', 'hi']):
+            if any(word in filename_lower for word in ['здравствуй', 'привет', 'добрый', 'доброе', 'хай', 'hello', 'hi']):
                 content_types.append('greeting_start')
             else:
                 content_types.append('farewell')
 
         # Вопросы о самочувствии
-        if any(word in filename for word in ['как', 'самочувствие', 'настроение', 'дела', 'жизнь', 'поживаешь']):
+        if any(word in filename_lower for word in ['как', 'самочувствие', 'настроение', 'дела', 'жизнь', 'поживаешь']):
             themes.append('wellbeing')
-            if 'как' in filename and any(word in filename for word in ['дела', 'самочувствие', 'настроение', 'жизнь', 'поживаешь']):
+            if 'как' in filename_lower and any(word in filename_lower for word in ['дела', 'самочувствие', 'настроение', 'жизнь', 'поживаешь']):
                 content_types.append('wellbeing_question')
 
         # Ответы на вопросы о самочувствии
-        if any(word in filename for word in ['хорошо', 'отлично', 'нормально', 'плохо', 'так себе', 'прекрасно', 'замечательно', 'в порядке', 'неплохо']):
+        if any(word in filename_lower for word in ['хорошо', 'отлично', 'нормально', 'плохо', 'так себе', 'прекрасно', 'замечательно', 'в порядке', 'неплохо']):
             themes.append('wellbeing')
             content_types.append('wellbeing_response')
 
         # О себе
-        if any(word in filename for word in ['о себе', 'расскажи', 'работаешь', 'кем']):
+        if any(word in filename_lower for word in ['о себе', 'расскажи', 'работаешь', 'кем']):
             themes.append('about_self')
-            if 'расскажи' in filename:
+            if 'расскажи' in filename_lower:
                 content_types.append('about_self_question')
             else:
                 content_types.append('about_self_statement')
 
         # Еда и готовка
-        if any(word in filename for word in ['еда', 'готовк', 'кухн', 'рецепт', 'суп', 'борщ', 'стол']):
+        if any(word in filename_lower for word in ['еда', 'готовк', 'кухн', 'рецепт', 'суп', 'борщ', 'стол']):
             themes.append('food')
-            if any(word in filename for word in ['люблю', 'готов', 'ем', 'ела']):
+            if any(word in filename_lower for word in ['люблю', 'готов', 'ем', 'ела']):
                 content_types.append('food_hobby')
-            elif any(word in filename for word in ['рецепт', 'как готов']):
+            elif any(word in filename_lower for word in ['рецепт', 'как готов']):
                 content_types.append('food_recipe')
 
         # Путешествия
-        if any(word in filename for word in ['путешеств', 'поездк', 'отпуск', 'турци', 'итали', 'франци', 'дубай', 'питер']):
+        if any(word in filename_lower for word in ['путешеств', 'поездк', 'отпуск', 'турци', 'итали', 'франци', 'дубай', 'питер']):
             themes.append('travel')
-            if any(word in filename for word in ['был', 'езди', 'летал', 'видел']):
+            if any(word in filename_lower for word in ['был', 'езди', 'летал', 'видел']):
                 content_types.append('travel_story')
 
         # Животные
-        if any(word in filename for word in ['кошк', 'собак', 'животн', 'кот', 'пес']):
+        if any(word in filename_lower for word in ['кошк', 'собак', 'животн', 'кот', 'пес']):
             themes.append('pets')
-            if any(word in filename for word in ['моя', 'мой', 'наш']):
+            if any(word in filename_lower for word in ['моя', 'мой', 'наш']):
                 content_types.append('pets_ownership')
 
         # Работа/офис
-        if any(word in filename for word in ['работ', 'офис', 'документ', 'папк', 'компьютер']):
+        if any(word in filename_lower for word in ['работ', 'офис', 'документ', 'папк', 'компьютер']):
             themes.append('work')
-            if any(word in filename for word in ['работа', 'офис', 'компания']):
+            if any(word in filename_lower for word in ['работа', 'офис', 'компания']):
                 content_types.append('work_environment')
 
         # Благодарности
-        if any(word in filename for word in ['спасибо', 'благодар', 'спс']):
+        if any(word in filename_lower for word in ['спасибо', 'благодар', 'спс']):
             themes.append('gratitude')
             content_types.append('gratitude')
 
         # Извинения
-        if any(word in filename for word in ['извин', 'прости', 'сорри']):
+        if any(word in filename_lower for word in ['извин', 'прости', 'сорри']):
             themes.append('apology')
             content_types.append('apology')
 
         # Эмоциональные состояния
-        if any(word in filename for word in ['грустн', 'рад', 'счастлив', 'обижен']):
+        if any(word in filename_lower for word in ['грустн', 'рад', 'счастлив', 'обижен']):
             themes.append('emotion')
             content_types.append('emotion_expression')
 
-        # Сохраняем все найденные категории
-        self.file_metadata[str(Path(self.library_base_path) / filename)]['themes'] = themes
-        self.file_metadata[str(Path(self.library_base_path) / filename)]['content_types'] = content_types
-
-        return themes
+        return themes, content_types
 
     async def recommend_media(
         self,
