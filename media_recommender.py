@@ -193,8 +193,25 @@ class MediaRecommender:
             список рекомендаций медиафайлов
         """
 
-        # Сначала фильтруем файлы по базовым критериям
-        candidate_files = self._filter_candidates_by_keywords(incoming_message.lower())
+        # Сначала фильтруем файлы по базовым критериям с учетом контекста
+        context_text = incoming_message
+        if history_context:
+            recent_history = " ".join(history_context[-3:])
+            if recent_history:
+                context_text = f"{incoming_message} {recent_history}"
+        candidate_files = self._filter_candidates_by_keywords(context_text.lower())
+
+        if not candidate_files:
+            if api_key and self.file_metadata:
+                fallback_candidates = sorted(self.file_metadata.keys())
+                return await self._rank_with_ai(
+                    incoming_message,
+                    fallback_candidates,
+                    history_context or [],
+                    max_recommendations,
+                    api_key
+                )
+            candidate_files = sorted(self.file_metadata.keys())
 
         if not candidate_files:
             return []

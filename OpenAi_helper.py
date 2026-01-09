@@ -389,7 +389,7 @@ async def generate_dating_ai_variants(
             media_recs = await recommender.recommend_media(
                 text,
                 history_context=list(history_lines),
-                max_recommendations=3,
+                max_recommendations=2,
                 api_key=api_key
             )
 
