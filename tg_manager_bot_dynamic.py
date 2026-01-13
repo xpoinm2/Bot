@@ -3881,36 +3881,10 @@ class AccountWorker:
             code_type = getattr(result, "type", None)
             self._last_code_delivery = _describe_sent_code_type(code_type)
             if isinstance(code_type, types.auth.SentCodeTypeApp):
-                try:
-                    forced = await self.client.send_code_request(self.phone, force_sms=True)
-                    log.info(
-                        "[%s] initial login code sent via app; retrying with SMS delivery",
-                        self.phone,
-                    )
-                except PhoneCodeFloodError as e:
-                    wait = getattr(e, "seconds", getattr(e, "value", 60))
-                    log.warning("[%s] phone code flood wait %ss", self.phone, wait)
-                    await asyncio.sleep(wait + 5)
-                    raise
-                except FloodWaitError as e:
-                    wait = getattr(e, "seconds", getattr(e, "value", 60))
-                    log.warning("[%s] flood wait %ss on send_code", self.phone, wait)
-                    await asyncio.sleep(wait + 5)
-                    raise
-                except Exception as force_err:
-                    log.warning(
-                        "[%s] unable to force SMS code delivery: %s",
-                        self.phone,
-                        force_err,
-                    )
-                else:
-                    result = forced
-                    forced_type = getattr(forced, "type", None)
-                    self._last_code_delivery = (
-                        "sms_forced"
-                        if isinstance(forced_type, types.auth.SentCodeTypeSms)
-                        else _describe_sent_code_type(forced_type)
-                    )
+                log.info(
+                    "[%s] login code delivered via app; skipping forced SMS (deprecated)",
+                    self.phone,
+                )
         return result
 
     @property
